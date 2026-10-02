@@ -1,0 +1,9 @@
+# minsikim/yolo/requirements.txt
+# GPU 노트북: torch는 먼저 설치
+#   pip install torch==2.14.1 torchvision==0.29.1 --index-url https://download.pytorch.org/whl/cu130
+ultralytics==8.4.170
+opencv-python==5.0.0.93
+numpy==2.4.6
+pyrealsense2==2.58.4.10922
+matplotlib==3.11.2
+ncnn==1.0.20260526     # NCNN 변환 결과 확인용
