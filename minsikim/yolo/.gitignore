@@ -1,0 +1,22 @@
+venv/
+.yolo/
+env/
+ENV/
+
+__pycache__/
+*.pyc
+
+# YOLO 데이터셋 / 학습 결과 (prepare_dataset.py, yolo train 으로 재생성)
+dataset/
+runs/
+*.log
+
+# 라벨 export, 녹화 영상, 이미지
+*.zip
+*.mp4
+*.webm
+*.jpg
+*.png
+
+# 모델 가중치 (사전학습 모델은 ultralytics가 자동 다운로드)
+*.pt
