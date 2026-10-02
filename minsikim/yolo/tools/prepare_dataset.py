@@ -4,7 +4,7 @@ Every frame is kept: frames without a label file in the zip become negatives (em
 The split is by contiguous time (the last --val-frac of each video goes to val) so that
 near-identical neighbouring frames do not leak between train and val.
 
-usage: python prepare_dataset.py <labels.zip> <frames_dir> [--out dataset]
+usage: python tools/prepare_dataset.py data/labels/<export>.zip <frames_dir> [--out dataset]
 """
 import argparse
 import shutil
@@ -12,12 +12,14 @@ import zipfile
 from collections import defaultdict
 from pathlib import Path
 
+YOLO_DIR = Path(__file__).resolve().parent.parent
+
 
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("labels_zip")
     p.add_argument("frames", help="folder of .jpg frames (searched recursively)")
-    p.add_argument("--out", default="dataset")
+    p.add_argument("--out", default=str(YOLO_DIR / "dataset"))
     p.add_argument("--val-frac", type=float, default=0.2)
     p.add_argument("--names", nargs="+", default=["target_blue"])
     args = p.parse_args()
