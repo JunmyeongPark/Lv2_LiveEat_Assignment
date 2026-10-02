@@ -1,1 +1,12 @@
 # Detector 모델 경로·입력 크기·confidence
+perception_master:
+  ros__parameters:
+    model_param: /home/pi/models/target_blue/model.ncnn.param
+    model_bin:   /home/pi/models/target_blue/model.ncnn.bin
+    input_size: 640          # 320으로 다시 학습/변환하면 같이 변경
+    conf_threshold: 0.25
+    num_threads: 4
+    depth_roi_ratio: 0.4     # realsense_gpt.py와 같은 값
+    min_depth: 0.2
+    max_depth: 3.0
+    min_valid_ratio: 0.5
