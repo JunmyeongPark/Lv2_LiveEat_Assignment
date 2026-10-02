@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>perception</name>
+  <version>0.0.1</version>
+  <description>Detector, depth extractor, IMU/joint reader</description>
+  <maintainer email="todo@todo.todo">TODO</maintainer>
+  <license>TODO</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>rclcpp</depend>
+  <depend>sensor_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>cv_bridge</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
