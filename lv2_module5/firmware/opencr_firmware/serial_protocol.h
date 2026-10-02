@@ -1,0 +1,2 @@
+// Serial 프로토콜: 명령 수신 · 상태 송신 형식
+#pragma once
