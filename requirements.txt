@@ -1,0 +1,8 @@
+# 라즈베리파이 / PC 공통: 분석·벤치마크·시각화 도구
+#   lv2_module5/tools/benchmark/*.py, realsense_fov_viz.py
+# ROS 패키지(rclpy, cv_bridge 등)는 apt로 설치된 것을 사용 → venv는 --system-site-packages로 생성
+numpy>=1.24,<2       # ROS(Humble/Jazzy) apt 패키지가 numpy 1.x 기준으로 빌드됨
+pandas>=1.5
+matplotlib>=3.6
+psutil>=5.9
+pyyaml>=6.0

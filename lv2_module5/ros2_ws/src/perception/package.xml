@@ -2,7 +2,7 @@
 <package format="3">
   <name>perception</name>
   <version>0.0.1</version>
-  <description>Detector, depth extractor, IMU/joint reader</description>
+  <description>Detector (NCNN / ONNX Runtime), depth extractor, IMU/joint reader, detector benchmark</description>
   <maintainer email="todo@todo.todo">TODO</maintainer>
   <license>TODO</license>
 
@@ -11,6 +11,10 @@
   <depend>sensor_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>cv_bridge</depend>
+  <depend>message_filters</depend>
+  <depend>rosbag2_cpp</depend>
+  <depend>rosbag2_storage</depend>
+  <!-- ncnn, onnxruntime은 rosdep 키가 없어 별도 설치 (lv2_module5/tools/benchmark/README.md 참고) -->
 
   <export>
     <build_type>ament_cmake</build_type>
