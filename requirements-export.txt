@@ -1,0 +1,8 @@
+# PC 전용: YOLO 학습·모델 변환 (NCNN / ONNX export)
+#   yolo export model=best.pt format=ncnn imgsz=320
+#   yolo export model=best.pt format=onnx imgsz=320
+-r requirements.txt
+ultralytics>=8.4     # YOLO26 지원 버전
+onnx>=1.16
+onnxslim>=0.1.50
+onnxruntime>=1.18    # export한 ONNX를 PC에서 확인할 때

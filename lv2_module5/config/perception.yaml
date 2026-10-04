@@ -1,12 +1,29 @@
 # Detector 모델 경로·입력 크기·confidence
 perception_master:
   ros__parameters:
+    backend: ncnn            # ncnn | onnx
+    # NCNN (yolo export format=ncnn)
     model_param: /home/pi/models/target_blue/model.ncnn.param
     model_bin:   /home/pi/models/target_blue/model.ncnn.bin
-    input_size: 640          # 320으로 다시 학습/변환하면 같이 변경
+    ncnn_input: in0
+    ncnn_output: out0
+    # ONNX (yolo export format=onnx)
+    model_onnx:  /home/pi/models/target_blue/model.onnx
+    output_format: auto      # auto | raw (4+nc, N) | e2e (N, 6)
+    # 모델 입력 크기 = export imgsz=[height, width]. 지금 모델은 imgsz=640 (640x640) export
+    # 카메라 640x480에 맞춰 imgsz=[480,640]으로 다시 export하면 480으로 변경 (패딩 25% 연산 절약)
+    input_width: 640
+    input_height: 640
     conf_threshold: 0.25
-    num_threads: 4
+    num_threads: 3            # Pi4 4코어 중 1개는 모터·IMU 통신용으로 남김
+    target_class: -1         # -1 = 모든 클래스 중 최고 점수
     depth_roi_ratio: 0.4     # realsense_gpt.py와 같은 값
     min_depth: 0.2
     max_depth: 3.0
     min_valid_ratio: 0.5
+    depth_scale: 0.001       # 16UC1 1 unit = 1 mm
+    color_topic: /camera/camera/color/image_raw
+    depth_topic: /camera/camera/aligned_depth_to_color/image_raw
+    output_topic: /detection
+    sync_slop: 0.02          # [s] color·depth 짝 맞추기 허용 오차
+    timing_csv: ""           # 경로 지정 시 프레임별 처리 시간 기록 (실시간 노드 측정용)
