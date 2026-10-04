@@ -12,6 +12,8 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
 
 # ROS 와 무관한 계산 · 시리얼 모듈
 add_library(control_core
@@ -24,11 +26,18 @@ target_include_directories(control_core PUBLIC
   $<INSTALL_INTERFACE:include>
 )
 
-# TODO(control_master 담당): 노드 추가 시 control_core 를 링크
-#   add_executable(control_master src/control_master.cpp)
-#   target_link_libraries(control_master control_core rclcpp::rclcpp ...)
+# 노드: 주기마다 ① RX → ② Base → ③ Arm → ④ TX
+add_executable(control_master src/control_master.cpp)
+target_link_libraries(control_master
+  control_core
+  rclcpp::rclcpp
+  ${sensor_msgs_TARGETS}
+  ${geometry_msgs_TARGETS}
+  ${std_msgs_TARGETS}
+  ${nav_msgs_TARGETS}
+)
 
-install(TARGETS control_core
+install(TARGETS control_core control_master
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION lib/${PROJECT_NAME}

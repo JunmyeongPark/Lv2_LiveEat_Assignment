@@ -14,12 +14,12 @@ const uint32_t DXL_BAUD = 1000000;  // 실제 모터 baud 로 맞출 것
 
 const uint8_t ID_WHEEL_L = 1;       // XM430-W210-T, 터틀봇3 기본: 왼쪽 1, 오른쪽 2
 const uint8_t ID_WHEEL_R = 2;
-const uint8_t ID_ARM_YAW   = 3;     // XM430-W350-T, 팔 ID 는 실물 확인
-const uint8_t ID_ARM_PITCH = 4;     // XM430-W350-T
+const uint8_t ID_ARM_YAW   = 11;     // XM430-W350-T, (스캔으로 확인)
+const uint8_t ID_ARM_PITCH = 12;     // XM430-W350-T
 
 // 장착 방향: +명령일 때 바퀴가 앞으로 / 팔이 왼쪽(yaw)·위(pitch)로 가도록 ±1 로 맞춤
 const float WHEEL_DIR[2] = {+1.0f, +1.0f};
-const float ARM_DIR[2]   = {+1.0f, +1.0f};
+const float ARM_DIR[2]   = {+1.0f, -1.0f}; 
 const int32_t ARM_ZERO[2] = {2048, 2048};   // 팔이 0 rad 일 때의 raw 위치
 
 // 안전 한계 (Pi 의 Arm Command 가 먼저 걸지만, 보드에서 한 번 더)
@@ -65,7 +65,7 @@ void setup_arm(int i, uint8_t id, float lo, float hi)
   dxl.torqueOff(id);                                   // EEPROM 은 토크 꺼진 상태에서만 쓸 수 있음
   dxl.setOperatingMode(id, OP_POSITION);
   int32_t a = arm_raw(i, lo), b = arm_raw(i, hi);      // 방향이 -1 이면 순서가 뒤집히므로 정렬
-  dxl.writeControlTableItem(MIN_POSITION_LIMIT, id, min(a, b));
+  dxl.writeControlTableItem(MIN_POSITION_LIMIT, id, min(a, b)); 
   dxl.writeControlTableItem(MAX_POSITION_LIMIT, id, max(a, b));
   int32_t prof = (int32_t)lroundf(ARM_PROFILE_DPS / 6.0f / RPM_PER_RAW);   // °/s → rpm(÷6) → raw
   dxl.writeControlTableItem(PROFILE_VELOCITY, id, prof);

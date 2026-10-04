@@ -6,7 +6,7 @@
 //   ※ 업로드 중엔 control_master 를 끌 것 (같은 포트 동시 사용 금지)
 //   필요: OpenCR 보드 패키지, Dynamixel2Arduino 라이브러리
 //
-// [IMU]  ③ 은 imu_reader (수영 님 담당) 를 통합할 때 채움. 지금은 상태 패킷의 IMU 칸에 0 을 보냄
+// [IMU]  ③ 은 imu_reader (수용 님 담당) 를 통합할 때 채움. 지금은 상태 패킷의 IMU 칸에 0 을 보냄
 #include "motor_driver.h"
 #include "serial_protocol.h"
 #include "watchdog.h"

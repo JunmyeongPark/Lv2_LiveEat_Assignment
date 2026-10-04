@@ -12,21 +12,16 @@ static double clamp(double x, double lo, double hi) { return std::max(lo, std::m
 BaseKinematics::BaseKinematics(const BaseParams & p)
 : p_(p) {}
 
-WheelCommand BaseKinematics::step(
-  double v, double w, bool fresh, double th_left, double th_right, double dt)
+WheelCommand BaseKinematics::step(double v, double w, bool fresh, double dt)
+
 {
   WheelCommand out;
-  if (!started_) {                       // 목표 각도는 현재 바퀴 각도에서 시작
-    th_ref_[0] = th_left;
-    th_ref_[1] = th_right;
-    started_ = true;
-  }
 
   // 1) 명령이 끊겼으면 정지 목표
   double v_goal = fresh ? v : 0.0;
   double w_goal = fresh ? w : 0.0;
 
-  // 2) 속도 한계 + 가속도 한계
+  // 2) 속도 한계 + 가속도 한계 (끊기면 이 한계대로 감속해서 0 에 도달)
   v_goal = clamp(v_goal, -p_.max_v, p_.max_v);
   w_goal = clamp(w_goal, -p_.max_w, p_.max_w);
   v_ref_ += clamp(v_goal - v_ref_, -p_.max_acc_v * dt, p_.max_acc_v * dt);
@@ -39,29 +34,54 @@ WheelCommand BaseKinematics::step(
   wl /= k;                               // 바퀴 한계를 넘으면 둘 다 같은 비율로 줄여 곡률 유지
   wr /= k;
 
-  // 4) 누적 밀림 보정: 목표 각도 vs 엔코더 각도
-  th_ref_[0] += wl * dt;
-  th_ref_[1] += wr * dt;
-  const double el = clamp(th_ref_[0] - th_left, -p_.max_ang_err, p_.max_ang_err);
-  const double er = clamp(th_ref_[1] - th_right, -p_.max_ang_err, p_.max_ang_err);
-  th_ref_[0] = th_left + el;             // 오차가 상한 이상 쌓이지 않게 목표를 당겨둠
-  th_ref_[1] = th_right + er;
-  double cl = clamp(wl + p_.kp_ang * el, -p_.max_wheel, p_.max_wheel);
-  double cr = clamp(wr + p_.kp_ang * er, -p_.max_wheel, p_.max_wheel);
-  if (!fresh && std::abs(v_ref_) < 1e-3 && std::abs(w_ref_) < 1e-3) {
-    cl = cr = 0.0;                       // 명령 끊김 + 감속 완료 → 확실히 정지
-    th_ref_[0] = th_left;
-    th_ref_[1] = th_right;
-  }
-
-  out.left = cl;
-  out.right = cr;
+  out.left = wl;
+  out.right = wr;
   out.v_ref = v_ref_;
   out.w_ref = w_ref_;
-  out.left_ref = wl;
-  out.right_ref = wr;
-  out.left_err = el;
-  out.right_err = er;
+  return out;
+}
+
+BaseOdom BaseKinematics::odom(double wheel_vel_l, double wheel_vel_r, double pos_l, double pos_r, bool imu_ok, double imu_yaw)
+{
+  BaseOdom out;
+  
+  if (!odom_started_) {
+    prev_pos_l_ = pos_l;
+    prev_pos_r_ = pos_r;
+    prev_imu_yaw_ = imu_yaw;
+    odom_started_ = true;
+  }
+  // 엔코더 yaw
+  const double dpos_l = pos_l - prev_pos_l_;
+  const double dpos_r = pos_r - prev_pos_r_;
+  const double dyaw_wheel = (dpos_r - dpos_l) * p_.wheel_radius / p_.wheel_separation;
+
+  // IMU yaw
+  double dyaw_imu = imu_yaw - prev_imu_yaw_;
+  if (dyaw_imu > M_PI) {
+    dyaw_imu -= M_PI * 2.0;
+  } else if (dyaw_imu < -M_PI) {
+    dyaw_imu += M_PI * 2.0;
+  }
+
+  // IMU 사용 가능하면 IMU yaw 를 쓰고, 아니면 엔코더 yaw 를 씀
+  const double dyaw = imu_ok ? dyaw_imu : dyaw_wheel;
+
+  // 직진 속도, 회전 속도
+  out.v = (wheel_vel_r + wheel_vel_l) * p_.wheel_radius / 2.0;
+  out.w = (wheel_vel_r - wheel_vel_l) * p_.wheel_radius / p_.wheel_separation;
+
+  // 몸 방향
+  yaw_total_ += dyaw;   // ±π 에서 안 끊기고 계속 누적
+  out.yaw = std::atan2(std::sin(yaw_total_), std::cos(yaw_total_));
+  out.yaw_total = yaw_total_;
+
+  out.from_imu = imu_ok;
+
+  prev_pos_l_ = pos_l;
+  prev_pos_r_ = pos_r;
+  prev_imu_yaw_ = imu_yaw;
+
   return out;
 }
 
