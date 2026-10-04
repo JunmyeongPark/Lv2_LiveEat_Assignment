@@ -11,9 +11,9 @@ minsikim/
     ├── tools/
     │   └── prepare_dataset.py   makesense YOLO zip → dataset/
     ├── data/labels/         makesense export zip        (git 제외)
-    ├── models/              사전학습 모델 yolo26n.pt     (git 제외)
+    ├── models/              사전학습 모델 yolo26n.pt     (git 포함)
     ├── dataset/             학습용 데이터, 자동 생성      (git 제외)
-    ├── runs/                학습 결과 + train.log       (git 제외)
+    ├── runs/                학습 결과 (best.pt, best_ncnn_model만 git 포함)
     └── .yolo/               가상환경                    (git 제외)
 ```
 
