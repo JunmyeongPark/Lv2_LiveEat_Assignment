@@ -23,6 +23,7 @@ bag을 순차 처리하는 `detector_bench`(tools/benchmark)와 달리 **ROS 오
 |---|---|---|---|
 | NCNN | 640x640 | `weights/best_ncnn_model/` (md5 `f911e86a…`, 9.6MB) | ncnn `f947448` (2026-10-05 소스 빌드, Vulkan OFF) |
 | NCNN | 640x480 | `weights/best_ncnn_model_480x640/` (md5 `6f33bc88…`, 9.6MB) | 〃 |
+| NCNN | 320x256 | `weights/best_ncnn_model_256x320/` (md5 `4ceb5c3d…`, 9.5MB) | 〃 |
 | ONNX | 640x640 | `weights/best_640x640.onnx` (md5 `84550408…`, 9.8MB, opset 18, onnxslim) | ONNX Runtime 1.30.0 (공식 aarch64 릴리스, CPU EP) |
 | ONNX | 640x480 | `weights/best_480x640.onnx` (md5 `d86db00b…`, 9.8MB, opset 18, onnxslim) | 〃 |
 
@@ -39,7 +40,7 @@ bag을 순차 처리하는 `detector_bench`(tools/benchmark)와 달리 **ROS 오
 | 실행 사이 | 30초 쿨다운 |
 | 부하 | 카메라 노드와 측정 노드만 실행 (`ros2 topic echo/hz` 없음) |
 | 함께 기록 | 1초 간격 SoC 온도·CPU0 클럭, 실행별 CPU 사용률·메모리 |
-| 스크립트 | `results/logs/controlled_1005/controlled_run.sh` |
+| 스크립트 | `tools/benchmark/realtime/controlled_run.sh` |
 
 ### 2.2 속도 [ms]
 | 백엔드 | 입력 | 프레임 | infer mean | infer p50 | infer p95 | infer max | infer std | pre mean | callback mean | callback p95 | 발행 FPS |
@@ -48,6 +49,10 @@ bag을 순차 처리하는 `detector_bench`(tools/benchmark)와 달리 **ROS 오
 | ONNX | 640x640 | 89 | 583.2 | 538.5 | 804.4 | 1403.2 | 124.9 | 13.3 | 598.2 | 822.5 | 1.56 |
 | NCNN | 640x480 | 130 | **417.1** | 395.7 | 591.7 | 674.4 | 69.5 | 10.1 | 428.4 | 606.7 | **2.27** |
 | ONNX | 640x480 | 121 | 419.4 | 399.8 | 579.8 | 718.5 | 67.0 | 9.9 | 430.8 | 590.4 | 2.12 |
+프레임이 낮아 조건을 수정
+320x256, 4개의 코어 사용
+NCNN: 약 6.5프레임
+ONNX: 약 4.8프레임
 
 - 후처리(`post`)는 0.03~0.04 ms, depth 추출은 0.01 ms 수준이다. **처리 시간의 97% 이상이 추론**이다.
 - 발행 FPS = (프레임 수 − 1) / 분석 구간 첫·마지막 `header.stamp` 간격.
@@ -101,12 +106,39 @@ bag을 순차 처리하는 `detector_bench`(tools/benchmark)와 달리 **ROS 오
 | NCNN | 555.7 → 417.1 ms (−25%) | 1.74 → 2.27 (+30%) |
 | ONNX | 583.2 → 419.4 ms (−28%) | 1.56 → 2.12 (+36%) |
 
+### 2.6 입력 320x256 (NCNN, 추가 측정)
+2절과 같은 방법(75초, 워밍업 15초 제외, 쿨다운 30초)으로 320x256과 비교 기준 640x480을 연달아 측정했다. 모델은 v1(`best.pt`)이다.
+320x240은 32의 배수로 올림되어 실제로 320x256으로 추론된다. 그래서 `imgsz=256,320`으로 export했다(출력 `(1, 5, 1680)`).
+
+| 입력 | 프레임 | infer mean | infer p50 | infer p95 | infer std | pre mean | callback mean | 발행 FPS | CPU | RSS | 온도 (시작→끝) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| **320x256** | 384 | **107.8** | 94.3 | 172.9 | 30.6 | 2.4 | 111.2 | **6.69** | 198% | 171 MB | 53.6 → 60.9 °C |
+| 640x480 | 140 | 392.9 | 370.0 | 546.0 | 61.4 | 8.2 | 402.3 | 2.44 | 248% | 221 MB | 63.3 → 69.1 °C |
+
+- **320x256은 640x480보다 추론이 3.6배 빠르다**(392.9 → 107.8 ms). 발행 FPS는 2.44 → 6.69(+174%)다. 픽셀 수 비율(3.75배)과 거의 같다.
+- CPU 사용률이 50%p 줄었다(248 → 198%). 다른 노드에 남는 CPU 여유가 커진다.
+- 640x480 값(392.9 ms)은 2절 통제 측정(417.1 ms)과 6% 이내로 일치한다. 측정 환경이 재현됐다는 뜻이다.
+- 클럭은 평균 1.774~1.800 GHz이고, 온도는 70 °C 아래였다.
+
+**검출 품질은 이 측정으로 비교할 수 없다.** 두 실행의 장면이 달랐다.
+- 320x256 실행 중에는 퍽이 화면 안에서 움직였다(ex −0.17 ~ +0.73).
+- 640x480 실행 중에는 퍽이 화면 오른쪽 위 구석, 약 0.4 m 거리에 있었고 score 0.27~0.53으로 140프레임 중 32프레임만 검출됐다.
+
+검출 품질은 별도로 확인했다. 검증셋 75장(노트북 CPU, 정사각 레터박스)에서 v1 모델의 결과는 아래와 같다.
+
+| 입력 | mAP50 | mAP50-95 | Recall |
+|---|---|---|---|
+| 640 | 0.995 | 0.898 | 1.000 |
+| 320 | 0.995 | 0.773 | 1.000 |
+
+320에서도 퍽을 모두 찾지만 박스 위치 정밀도(mAP50-95)는 낮아진다. 먼 거리(2~3 m)의 퍽은 검증셋에 적을 수 있어서 실제 장면으로 따로 확인해야 한다.
+
 ## 3. 결론
 1. **추론 속도는 NCNN이 같거나 약간 빠르다.** 640x640에서 평균 −5%이고, 640x480에서는 차이가 1% 이내로 사실상 같다. 다만 발행 FPS는 두 크기 모두 NCNN이 7~10% 높다.
 2. **NCNN이 CPU를 약 30%p 덜 쓴다.** 같은 처리량에서 다른 노드(planning·control·시리얼)에 남는 CPU 여유가 크다. 4코어 Pi에서 이 점이 속도 차이보다 중요하다.
 3. **출력은 두 백엔드가 같다.** 위치 오차 0.1 px 수준이라, 백엔드를 바꿔도 제어 입력은 달라지지 않는다.
 4. **입력 크기 효과(−25~28%)가 백엔드 차이(0~5%)보다 훨씬 크다.**
-5. **권장: NCNN + 640x480.** 그래도 2.3 FPS라 카메라 15 FPS 중 대부분을 버린다. 추적 제어에는 아직 느리므로 입력 크기를 더 줄이는 것(예: 320x240)을 다음에 시험한다.
+5. **권장: NCNN + 320x256.** 640x480보다 3.6배 빠르고(약 108 ms, 6.7 FPS) CPU도 50%p 덜 쓴다(2.6절). 대신 박스 위치 정밀도가 낮아지고 먼 퍽을 놓칠 수 있어서, 1~3 m 거리별 검출 확인이 남아 있다.
 
 ### 남은 한계
 - 같은 프레임을 두 백엔드에 넣은 비교가 아니다. 고정 장면이라 출력 통계로 일치를 확인했지만, 프레임 단위 IoU·|Δe_x|는 같은 bag으로 `detector_bench`를 돌려야 알 수 있다(tools/benchmark/README.md).
@@ -135,13 +167,13 @@ yolo export model=best.pt format=onnx imgsz=640
 yolo export model=best.pt format=onnx imgsz=480,640
 
 # Pi: 두 백엔드를 포함해 빌드
-colcon build --packages-select perception --cmake-args \
+colcon build --packages-select perception --cmake-args -DPERCEPTION_WITH_ONNX=ON \
   -DONNXRUNTIME_ROOT=$HOME/onnxruntime -Dncnn_DIR=$HOME/ncnn-install/lib/cmake/ncnn
 
 # Pi: 카메라 실행 후 통제 측정 (약 6분, 퍽 고정)
 ros2 launch realsense2_camera rs_launch.py align_depth.enable:=true \
   rgb_camera.color_profile:=640x480x15 depth_module.depth_profile:=640x480x15
-./controlled_run.sh      # 결과: ~/controlled_1005/
+tools/benchmark/realtime/controlled_run.sh      # 결과: ~/controlled_1005/  (320x256: run320.sh)
 ```
 모델 경로: `~/models/target_blue/`(640x640: `model.ncnn.*`, `model.onnx`), `~/models/target_blue_480/`(640x480)
 
@@ -151,7 +183,8 @@ ros2 launch realsense2_camera rs_launch.py align_depth.enable:=true \
 | `results/logs/controlled_1005/{ncnn,onnx}_640x{640,480}.csv` | 통제 측정 프레임별 기록 |
 | `results/logs/controlled_1005/thermal.csv` | 1초 간격 `epoch_s, temp_milli_c, cpu0_freq_khz` |
 | `results/logs/controlled_1005/events.csv`, `proc.csv` | 실행 시작·종료 시각, 실행별 CPU·RSS |
-| `results/logs/controlled_1005/*.log`, `controlled_run.sh` | 노드 로그, 측정 스크립트 |
+| `results/logs/controlled_1005/*.log` | 노드 로그 (측정 스크립트: `tools/benchmark/realtime/controlled_run.sh`) |
 | `results/logs/realtime_1005/*.csv` | 예비 측정 프레임별 기록 |
+| `results/logs/controlled_320/` | 320x256 추가 측정 (2.6절): CSV·로그·`thermal.csv` (측정 스크립트: `tools/benchmark/realtime/run320.sh`) |
 
 CSV 열: `stamp_ns, backend, pre_ms, infer_ms, post_ms, depth_ms, callback_ms, detected, score, ex, ey, z`

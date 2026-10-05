@@ -1,0 +1,2 @@
+[INFO] [1791188462.423282202] [perception_master]: detector backend=ncnn input=320x256 threads=3
+[INFO] [1791188534.933018061] [rclcpp]: signal_handler(signum=2)

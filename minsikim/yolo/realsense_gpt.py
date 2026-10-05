@@ -31,6 +31,10 @@ LOWER_BLUE = np.array([90, 80, 50])
 UPPER_BLUE = np.array([130, 255, 255])
 
 MIN_AREA = 300
+
+# 픽셀 → 각도 변환용 RGB 화각 (deg, D435 color) — perception.yaml hfov_deg / vfov_deg와 같은 값
+RGB_HFOV = 69.0
+RGB_VFOV = 42.0
 DEPTH_ROI_RATIO = 0.4
 
 # 유효 깊이 범위 (m) / 최소 유효 픽셀 비율
@@ -511,7 +515,16 @@ try:
                 # 깊이 디버그 정보
                 # =========================
 
-                debug_lines = [f"Box: {w}x{h}"]
+                # 픽셀 -> 각도: 좌우 = (HFOV/2)*(w/2 - x)/(w/2), 상하 = (VFOV/2)*(h/2 - y)/(h/2)
+                # 왼쪽·위가 + (ex·ey와 부호 반대)
+                angle_x = (RGB_HFOV / 2) * (WIDTH / 2 - cx) / (WIDTH / 2)
+                angle_y = (RGB_VFOV / 2) * (HEIGHT / 2 - cy) / (HEIGHT / 2)
+
+                debug_lines = [
+                    f"Box: {w}x{h}",
+                    f"Angle X: {angle_x:+.1f} deg (L+)",
+                    f"Angle Y: {angle_y:+.1f} deg (U+)",
+                ]
 
                 if conf is not None:
                     debug_lines.append(f"Conf: {conf:.2f}")

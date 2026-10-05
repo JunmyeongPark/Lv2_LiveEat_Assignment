@@ -37,7 +37,7 @@ struct DetectorConfig {
   int input_w = 320;                 // 모델 입력 가로·세로 [px]. export 시 imgsz=[h, w]와 같아야 함
   int input_h = 320;                 // (ultralytics imgsz는 [높이, 너비] 순서)
   float conf_threshold = 0.25f;
-  int num_threads = 3;
+  int num_threads = 4;
   std::string output_format = "auto";  // "auto" | "raw" (4+nc, N) | "e2e" (N, 6)
   int target_class = -1;               // -1이면 모든 클래스 중 최고 점수
 };

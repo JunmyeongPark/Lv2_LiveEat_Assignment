@@ -39,7 +39,7 @@ class PerceptionMaster : public rclcpp::Node {
     dc.input_w = declare_parameter("input_width", 320);
     dc.input_h = declare_parameter("input_height", 320);
     dc.conf_threshold = static_cast<float>(declare_parameter("conf_threshold", 0.25));
-    dc.num_threads = declare_parameter("num_threads", 3);
+    dc.num_threads = declare_parameter("num_threads", 4);
     dc.output_format = declare_parameter("output_format", std::string("auto"));
     dc.target_class = declare_parameter("target_class", -1);
 
@@ -56,6 +56,9 @@ class PerceptionMaster : public rclcpp::Node {
     const auto out_topic = declare_parameter("output_topic", std::string("/detection"));
     const auto timing_csv = declare_parameter("timing_csv", std::string(""));  // 비우면 기록 안 함
     const double slop = declare_parameter("sync_slop", 0.02);
+    // 픽셀 → 각도 변환용 RGB 화각 [deg] (D435 color: 69 x 42)
+    hfov_deg_ = declare_parameter("hfov_deg", 69.0);
+    vfov_deg_ = declare_parameter("vfov_deg", 42.0);
 
     detector_ = perception::make_detector(dc);
     depth_ = std::make_unique<perception::DepthExtractor>(pc);
@@ -64,7 +67,8 @@ class PerceptionMaster : public rclcpp::Node {
 
     if (!timing_csv.empty()) {
       csv_.open(timing_csv);
-      csv_ << "stamp_ns,backend,pre_ms,infer_ms,post_ms,depth_ms,callback_ms,detected,score,ex,ey,z\n";
+      csv_ << "stamp_ns,backend,pre_ms,infer_ms,post_ms,depth_ms,callback_ms,detected,score,ex,ey,z,"
+              "angle_x_deg,angle_y_deg\n";
     }
 
     pub_ = create_publisher<geometry_msgs::msg::PointStamped>(out_topic, rclcpp::QoS(1).best_effort());
@@ -91,11 +95,18 @@ class PerceptionMaster : public rclcpp::Node {
     msg.header = color->header;  // 촬영(수신) 시각 유지
 
     double depth_ms = 0.0;
+    double angle_x = 0.0, angle_y = 0.0;  // [deg] 미검출이면 0
     if (det) {
       const float cx = det->box.x + det->box.width / 2.f;
       const float cy = det->box.y + det->box.height / 2.f;
-      msg.point.x = (cx - bgr.cols / 2.f) / (bgr.cols / 2.f);
-      msg.point.y = (cy - bgr.rows / 2.f) / (bgr.rows / 2.f);
+      const float half_w = bgr.cols / 2.f, half_h = bgr.rows / 2.f;
+      msg.point.x = (cx - half_w) / half_w;
+      msg.point.y = (cy - half_h) / half_h;
+      // 픽셀 → 각도: 좌우 = (HFOV/2)·(w/2 − x)/(w/2), 상하 = (VFOV/2)·(h/2 − y)/(h/2)
+      // 부호가 ex·ey와 반대 (왼쪽·위가 +). /target 출력은 규약대로 ex·ey 유지, 각도는 CSV·디버그 로그에만 기록
+      angle_x = (hfov_deg_ / 2.0) * (half_w - cx) / half_w;
+      angle_y = (vfov_deg_ / 2.0) * (half_h - cy) / half_h;
+      RCLCPP_DEBUG(get_logger(), "angle_x=%.2f deg angle_y=%.2f deg", angle_x, angle_y);
       const auto t_d = Clock::now();
       const auto z = depth_->median(depth_img, det->box);
       depth_ms = std::chrono::duration<double, std::milli>(Clock::now() - t_d).count();
@@ -110,9 +121,11 @@ class PerceptionMaster : public rclcpp::Node {
       const int64_t stamp = rclcpp::Time(color->header.stamp).nanoseconds();
       csv_ << stamp << ',' << detector_->name() << ',' << t.pre_ms << ',' << t.infer_ms << ',' << t.post_ms << ','
            << depth_ms << ',' << cb_ms << ',' << (det ? 1 : 0) << ',' << (det ? det->score : 0.f) << ','
-           << msg.point.x << ',' << msg.point.y << ',' << msg.point.z << '\n';
+           << msg.point.x << ',' << msg.point.y << ',' << msg.point.z << ',' << angle_x << ',' << angle_y << '\n';
     }
   }
+
+  double hfov_deg_ = 69.0, vfov_deg_ = 42.0;
 
   std::unique_ptr<perception::Detector> detector_;
   std::unique_ptr<perception::DepthExtractor> depth_;
