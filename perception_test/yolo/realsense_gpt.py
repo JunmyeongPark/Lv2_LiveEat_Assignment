@@ -250,6 +250,7 @@ def stop_recording():
 # =========================
 
 def get_median_depth(depth_frame, x1, y1, x2, y2):
+    """ROI 깊이 중앙값 (m) -> (depth, stats). 범위 밖·유효 픽셀 부족이면 0.0 (perception 노드 z=0과 같음)"""
 
     box_width = x2 - x1
     box_height = y2 - y1
@@ -272,7 +273,7 @@ def get_median_depth(depth_frame, x1, y1, x2, y2):
     roi = depth_image[ry1:ry2, rx1:rx2] * depth_frame.get_units()
 
     if roi.size == 0:
-        return None, None
+        return 0.0, None
 
     # 0(측정 실패) 및 유효 범위 밖 값 제거
     valid = roi[(roi >= MIN_DEPTH) & (roi <= MAX_DEPTH)]
@@ -291,7 +292,7 @@ def get_median_depth(depth_frame, x1, y1, x2, y2):
 
     # 유효 픽셀이 너무 적으면 신뢰 불가 (너무 가까움 / 무늬 없는 면 등)
     if valid.size < roi.size * MIN_VALID_RATIO:
-        return None, stats
+        return 0.0, stats
 
     return float(np.median(valid)), stats
 
@@ -496,10 +497,10 @@ try:
                     1
                 )
 
-                if depth is not None:
+                if depth > 0:
                     text = f"Depth: {depth:.3f} m"
                 else:
-                    text = "Depth: N/A"
+                    text = f"Depth: 0 (invalid, {MIN_DEPTH:.1f}~{MAX_DEPTH:.1f} m)"
 
                 cv2.putText(
                     display_frame,

@@ -2,9 +2,9 @@
 //
 // 출력 /detection (geometry_msgs/PointStamped)
 //   x = e_x, y = e_y  (정규화 중심 오차, 오른쪽·아래가 +)
-//   z = depth [m]     검출 + depth 성공
+//   z = depth [m]     검출 + depth 성공 (min_depth ~ max_depth, 기본 0.2 ~ 3.0 m)
 //   z = 0             미검출 (매 프레임 발행 — 발제 규약: "정상 영상의 미검출은 z=0 발행")
-//   z = NaN           검출은 됐지만 depth 실패
+//                     또는 검출은 됐지만 depth 실패 (범위 밖·유효 픽셀 부족)
 //   header.stamp      원본 영상 시각 유지
 #include <chrono>
 #include <cmath>
@@ -110,7 +110,7 @@ class PerceptionMaster : public rclcpp::Node {
       const auto t_d = Clock::now();
       const auto z = depth_->median(depth_img, det->box);
       depth_ms = std::chrono::duration<double, std::milli>(Clock::now() - t_d).count();
-      msg.point.z = z.value_or(std::nanf(""));
+      msg.point.z = z.value_or(0.0);  // depth 실패(범위 밖·유효 픽셀 부족)도 0
     } else {
       msg.point.x = msg.point.y = msg.point.z = 0.0;  // 미검출: z=0
     }

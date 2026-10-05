@@ -19,7 +19,8 @@ class DepthExtractor {
  public:
   explicit DepthExtractor(const DepthConfig& cfg) : cfg_(cfg) {}
 
-  // depth: RGB에 정렬된 depth (16UC1 [unit] 또는 32FC1 [m]). 실패 시 nullopt
+  // depth: RGB에 정렬된 depth (16UC1 [unit] 또는 32FC1 [m]).
+  // min_depth ~ max_depth 픽셀의 중앙값. 유효 픽셀이 min_valid_ratio 미만이면 nullopt (노드는 z=0 발행)
   std::optional<float> median(const cv::Mat& depth, const cv::Rect& box) const;
 
  private:
