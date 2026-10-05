@@ -1,7 +1,7 @@
 import math                                                   # [추가] odom_cb 의 쿼터니언 → yaw 변환용
 from geometry_msgs.msg import Twist
 from geometry_msgs.msg import PointStamped                   # [추가] /target 구독용
-from std_msgs.msg import Float32MultiArray
+from std_msgs.msg import Float32, Float32MultiArray
 import rclpy
 from rclpy.node import Node
 from planning.state_machine import HealthGate                 # [추가] 이슈 #6: health 기반 fail-safe 전이
@@ -20,7 +20,10 @@ class PlanningMaster(Node):
         self.arm_cmd_pub = self.create_publisher(Float32MultiArray, '/arm/command', 10)
         # [추가] /target 구독 (cam_cb 연결). QoS는 발제 문서 기준 best-effort, depth 1
         self.create_subscription(PointStamped, '/target', self.cam_cb, rclpy.qos.qos_profile_sensor_data)
-        # [추가] TODO: imu_cb, motor_cb 구독 연결 (토픽 이름·타입은 제어/인지 담당과 확인)
+        # [수정] imu_cb 구독 연결: imu_driver.py 가 /imu/yaw (Float32) 로 발행
+        self.create_subscription(Float32, '/imu/yaw', self.imu_cb, rclpy.qos.qos_profile_sensor_data)
+        # [수정] motor_cb 구독 연결. TODO: '/arm/state' 는 가정한 토픽명 — 제어 담당에게 확인 (틀리면 arm_motor_pos 가 [0,0] 으로 남아 LOST 정지 위치가 틀어짐)
+        self.create_subscription(Float32MultiArray, '/arm/state', self.motor_cb, 10)
         self.nominal_pose = [0, 0] #TODO: check
         self.arm_target_pose = [0, 0]
         self.arm_motor_pos = [0, 0]
@@ -31,6 +34,8 @@ class PlanningMaster(Node):
         self.cur_deg = 0
 
         self.cmd_vel_msg = Twist()
+        # [수정] 고정 주기(50Hz)로 run() 호출: spin_once 루프는 메시지 도착에 따라 주기가 변했음
+        self.create_timer(0.02, self.run)
 
         self.last_state = None
         self.state = 'idle'
@@ -54,9 +59,10 @@ class PlanningMaster(Node):
         # [추가] 이슈 #6: IMU STALE → 엔코더 odometry 로 heading 추정 fallback (선택 기능)
         self.heading_source = 'imu'        # 'imu' | 'encoder' — health 판정이 바꿈 (run 참고)
         self._heading_resync = True        # True 면 다음 샘플은 기준값으로만 쓰고 delta 는 계산하지 않음
-        # TODO(이슈 #6): /odom 입력 토픽·타입이 아직 안 정해짐 → 확정되면 아래 구독을 켜고 planning.yaml 로 토픽명 이동
-        #   from nav_msgs.msg import Odometry   (+ package.xml 에 <depend>nav_msgs</depend>)
-        #   self.create_subscription(Odometry, '/odom', self.odom_cb, rclpy.qos.qos_profile_sensor_data)
+        # TODO(이슈 #6): 엔코더 heading 은 control/base_kinematics 가 가공해 발행하는 값을 구독만 하면 됨 (팀장님 답변).
+        #   토픽명·메시지 타입·단위(deg/rad)는 아직 미확정 → 확정되면 아래 구독을 켜고 odom_cb 를 그 타입에 맞게 수정,
+        #   토픽명은 planning.yaml 의 odom_topic 으로 이동. (nav_msgs 타입이면 package.xml 에 <depend>nav_msgs</depend> 추가)
+        #   self.create_subscription(<타입>, '<토픽>', self.odom_cb, rclpy.qos.qos_profile_sensor_data)
 
 
     def lost_pose(self):
@@ -90,7 +96,8 @@ class PlanningMaster(Node):
     def imu_cb(self, msg): # Float32
         self._heading_sample(msg.data, 'imu')
 
-    # [추가] TODO(이슈 #6): 구독은 아직 꺼져 있음(__init__ 참고). nav_msgs/Odometry 라고 가정 — 타입·프레임 확정 필요
+    # [추가] TODO(이슈 #6): 구독은 아직 꺼져 있음(__init__ 참고). 임시로 nav_msgs/Odometry(쿼터니언→yaw) 를 가정한 코드 —
+    #   base_kinematics 가 실제 발행하는 타입·단위로 확정되면 이 함수를 맞게 수정할 것
     def odom_cb(self, msg):
         q = msg.pose.pose.orientation
         yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
@@ -111,7 +118,7 @@ class PlanningMaster(Node):
             self.detect_cnt = 0
 
     def motor_cb(self, msg): # Float32MultiArray
-        self.arm_motor_pos = msg.data
+        self.arm_motor_pos = list(msg.data)   # [수정] array 가 아닌 list 로 보관
 
     # [추가] 입력이 신선한가 (마지막 /target 수신 후 INPUT_TIMEOUT 이내)
     def input_fresh(self):
@@ -170,7 +177,7 @@ class PlanningMaster(Node):
         
     def calc_arm_cmd(self):
         if self.state in ['idle']:
-            self.arm_target_pose = self.nominal_pose
+            self.arm_target_pose = list(self.nominal_pose)   # [수정] 별칭 방지: 복사
             
         elif self.state in ['tracking']:
             # TODO: IRS 기준 1px이 몇도에 해당하는지 계산(x, y 둘다) << 민식큄
@@ -184,7 +191,8 @@ class PlanningMaster(Node):
                 self.tilt = 0.00000000000 #TODO: 적절한 값 찾기
             elif self.search_cnt < 2:
                 self.tilt = 0.00000000000 #TODO: 적절한 값 찾기
-            # [추가] TODO: self.tilt 를 arm_target_pose[1]에 반영 (지금은 팔 목표에 연결되어 있지 않음)
+            # [수정] tilt 를 팔 목표(상하 축 [1])에 반영. 나머지 축은 현재 목표 유지
+            self.arm_target_pose = [self.arm_target_pose[0], self.tilt]
             
         elif self.state in ['lost']:
             # [수정] nominal_pose 로 이동하지 않고, LOST 진입 순간의 팔 위치에서 즉시 정지
@@ -254,10 +262,13 @@ class PlanningMaster(Node):
 def main():
     rclpy.init()
     p = PlanningMaster()
-    while rclpy.ok():
-        rclpy.spin_once(p, timeout_sec=0.01)
-        p.run()
-    rclpy.shutdown()
+    try:
+        rclpy.spin(p)                   # [수정] run() 은 create_timer 가 호출
+    except KeyboardInterrupt:
+        pass
+    finally:
+        p.destroy_node()
+        rclpy.try_shutdown()
 
 
 if __name__ == "__main__":
