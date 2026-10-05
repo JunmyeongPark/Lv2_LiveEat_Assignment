@@ -1,12 +1,15 @@
 from geometry_msgs.msg import PointStamped, Twist
 from sensor_msgs.msg import Imu, JointState
-from std_msgs.msg import Float32MultiArray, String
+from std_msgs.msg import Float32, Float32MultiArray, String
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 import math
+from planning.health_monitor import HealthMonitor
 
-# 상태: idle / tracking / searching / lost
+# 상태: idle / tracking / searching / lost / fault
+#   lost  = 목표 소실 (720° 탐색 실패) → 팔 nominal 복귀 → idle
+#   fault = 입력·센서·모터 장애 → 속도 0, 팔 [0, 0] 명령 → 장애 해소 시 idle
 # 입력 약속 (/detection z): 0 = 미검출, > 0 = 검출 depth [m]. depth 실패(NaN)는 인지단에서 0으로 보낸다.
 # 파라미터는 config/planning.yaml에서 덮어쓴다. 아래 기본값은 yaml이 없을 때 사용.
 
@@ -21,6 +24,7 @@ class PlanningMaster(Node):
         # ---------------- 토픽 ----------------
         detection_topic = param('detection_topic', '/detection')
         imu_topic = param('imu_topic', '/control/imu')
+        odom_yaw_topic = param('odom_yaw_topic', '/control/odom_yaw_deg')
         joint_states_topic = param('joint_states_topic', '/control/joint_states')
         cmd_vel_topic = param('cmd_vel_topic', '/planning/cmd_vel')
         arm_cmd_topic = param('arm_cmd_topic', '/planning/arm_command')
@@ -32,7 +36,8 @@ class PlanningMaster(Node):
         # ---------------- 주기 · 타임아웃 ----------------
         self.control_rate_hz = float(param('control_rate_hz', 30.0))  # 제어 루프 주기
         self.detection_timeout_s = float(param('detection_timeout_s', 0.5))  # /detection 침묵 → 안전 정지
-        self.imu_timeout_s = float(param('imu_timeout_s', 0.5))  # IMU 침묵 → searching 회전 정지
+        self.imu_timeout_s = float(param('imu_timeout_s', 0.5))  # IMU 침묵 → 엔코더 heading 사용, 둘 다 없으면 정지
+        self.odom_timeout_s = float(param('odom_timeout_s', 0.5))
         self.joint_timeout_s = float(param('joint_timeout_s', 0.5))  # 관절 피드백 침묵 → 무효 처리
         self.recover_frames = int(param('recover_frames', 3))  # 연속 검출 프레임 수 → tracking 진입
 
@@ -75,6 +80,8 @@ class PlanningMaster(Node):
         self.search_max_turns = int(param('search_max_turns', 2))  # 누적 회전 바퀴 수 → lost
         # 마지막 검출 위치 판정 경계 (정규화 e_x). e_x >= 0.5 ↔ 화면 오른쪽 1/4
         self.lost_side_ex_threshold = float(param('lost_side_ex_threshold', 0.5))
+        # fault 상태에서 발행할 팔 각도 [pan, tilt] deg
+        self.fault_arm_pose = [float(v) for v in param('fault_arm_pose', [0.0, 0.0])]
 
         # ---------------- 퍼블리셔 · 구독자 ----------------
         self.cmd_vel_pub = self.create_publisher(Twist, cmd_vel_topic, 10)
@@ -88,7 +95,15 @@ class PlanningMaster(Node):
         )
         self.cam_sub = self.create_subscription(PointStamped, detection_topic, self.cam_cb, detection_qos)
         self.imu_sub = self.create_subscription(Imu, imu_topic, self.imu_cb, 10)
+        self.odom_yaw_sub = self.create_subscription(Float32, odom_yaw_topic, self.odom_yaw_cb, detection_qos)
         self.motor_sub = self.create_subscription(JointState, joint_states_topic, self.motor_cb, 10)
+        # HealthGate의 별도 상태 발행 대신 기존 /tracking_status에 판정 사유를 통합한다.
+        self.health_enabled = bool(param('health.enabled', True))
+        self.health_monitor = HealthMonitor(self) if self.health_enabled else None
+        self.health = None
+        self.health_reason = 'initializing'
+        self.health_blocked = False
+        self.arm_publish_enabled = True
 
         # ---------------- 상태 변수 ----------------
         self.tgt_arm_pose = self.nominal_pose.copy()
@@ -117,6 +132,10 @@ class PlanningMaster(Node):
         self.lost_side = 'middle'  # searching 진입 시점의 마지막 검출 위치
 
         self.cur_yaw_deg = 0.0
+        self.cur_imu_yaw_deg = 0.0
+        self.cur_encoder_yaw_deg = 0.0
+        self.heading_source = 'none'
+        self.heading_stale = True
         self.search_cnt = 0
         self.search_rot_deg = 0.0
         self.prev_yaw_deg = self.cur_yaw_deg
@@ -124,9 +143,12 @@ class PlanningMaster(Node):
         # 마지막 수신 시각 (None = 아직 수신 안 함)
         self.last_cam_time = None
         self.last_imu_time = None
+        self.last_odom_time = None
         self.last_joint_time = None
         self.detection_stale = True
         self.imu_stale = True
+        self.odom_stale = True
+        self.camera_input_valid = False
 
         self.cmd_vel_msg = Twist()
         self.state = 'idle'
@@ -140,26 +162,41 @@ class PlanningMaster(Node):
     def imu_cb(self, msg):  # sensor_msgs/Imu
         """orientation 쿼터니언에서 yaw(deg, 반시계+, -180~180)를 구한다."""
         q = msg.orientation
-        if not all(math.isfinite(v) for v in (q.x, q.y, q.z, q.w)) or (q.x, q.y, q.z, q.w) == (0.0, 0.0, 0.0, 0.0):
+        if msg.orientation_covariance[0] == -1 or not all(math.isfinite(v) for v in (q.x, q.y, q.z, q.w)) or (q.x, q.y, q.z, q.w) == (0.0, 0.0, 0.0, 0.0):
+            self.last_imu_time = None
             return
         siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
         cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
-        self.cur_yaw_deg = math.degrees(math.atan2(siny_cosp, cosy_cosp))
+        self.cur_imu_yaw_deg = math.degrees(math.atan2(siny_cosp, cosy_cosp))
         self.last_imu_time = self._now_s()
 
+    def odom_yaw_cb(self, msg):
+        """control이 계산한 엔코더 yaw(deg). IMU 장애/침묵 시 대체 입력."""
+        if not math.isfinite(msg.data):
+            self.last_odom_time = None
+            return
+        self.cur_encoder_yaw_deg = msg.data
+        self.last_odom_time = self._now_s()
+
     def cam_cb(self, msg):  # PointStamped
+        now = self._now_s()
+        if self.last_cam_time is None or not 0 <= now - self.last_cam_time <= self.detection_timeout_s:
+            self.detect_streak = 0
         self.cur_bbox_error_x = msg.point.x
         self.cur_bbox_error_y = msg.point.y
         self.cur_depth = msg.point.z
         self.cur_cam_timestamp = msg.header.stamp
-        self.last_cam_time = self._now_s()
+        self.last_cam_time = now
+        self.camera_input_valid = all(math.isfinite(v) for v in (
+            self.cur_bbox_error_x, self.cur_bbox_error_y, self.cur_depth,
+        )) and self.cur_depth >= 0
 
-        if self.cur_depth > 0.0:  # 검출: 화면상 위치 저장 (lost_pose용)
+        if self.camera_input_valid and self.cur_depth > 0.0:  # 검출: 화면상 위치 저장 (lost_pose용)
             if math.isfinite(self.cur_bbox_error_x):
                 self.last_detected_ex = self.cur_bbox_error_x
-        # 연속 검출 카운트: depth > 0인 프레임만 인정, 그 외는 리셋 (NaN이 와도 방어적으로 미검출 취급)
-        if self.cur_depth > 0.0:
-            self.detect_streak += 1
+        # 유효한 depth > 0 프레임만 연속 검출로 인정. NaN 등은 check_health에서 입력 오류로 처리.
+        if self.camera_input_valid and self.cur_depth > 0.0:
+            self.detect_streak = min(self.detect_streak + 1, self.recover_frames)
         else:
             self.detect_streak = 0
 
@@ -180,14 +217,56 @@ class PlanningMaster(Node):
         now = self._now_s()
 
         def stale(last, timeout):
-            return last is None or now - last > timeout
+            return last is None or not 0 <= now - last <= timeout
 
         self.detection_stale = stale(self.last_cam_time, self.detection_timeout_s)
         self.imu_stale = stale(self.last_imu_time, self.imu_timeout_s)
+        self.odom_stale = stale(self.last_odom_time, self.odom_timeout_s)
         if stale(self.last_joint_time, self.joint_timeout_s):
             self.cur_arm_pose_valid = False
         if self.detection_stale:
             self.detect_streak = 0
+
+    def check_health(self):
+        """진단 메시지 + 실제 데이터 신선도로 정지/heading fallback을 결정한다."""
+        self.health = self.health_monitor.evaluate() if self.health_monitor else None
+        h = self.health
+        imu_ok = not self.imu_stale and (h is None or h.imu_ok)
+        encoder_ok = not self.odom_stale and (h is None or (h.mcu_ok and h.motor_ok))
+        source = 'imu' if imu_ok else ('encoder' if encoder_ok else 'none')
+        self.heading_stale = source == 'none'
+        if source != 'none':
+            yaw = self.cur_imu_yaw_deg if source == 'imu' else self.cur_encoder_yaw_deg
+            if source != self.heading_source:
+                # IMU/엔코더의 영점 차이를 탐색 회전량에 더하지 않는다.
+                self.prev_yaw_deg = yaw
+            self.cur_yaw_deg = yaw
+        self.heading_source = source
+
+        reason = None
+        if h is not None and h.reason in ('mcu_fault', 'motor_fault', 'camera_stale'):
+            reason = h.reason
+        elif self.detection_stale:
+            reason = 'detection_timeout'
+        elif not self.camera_input_valid:
+            reason = 'camera_invalid'
+        elif not self.cur_arm_pose_valid:
+            reason = 'arm_invalid'
+        elif self.heading_stale:
+            reason = 'heading_unavailable'
+
+        self.health_blocked = reason is not None
+        self.health_reason = reason or ('imu_fallback' if source == 'encoder' else (
+            'ok' if self.health_enabled else 'health_disabled'))
+        self.arm_publish_enabled = True
+        if self.health_blocked:
+            # 장애(모터·팔·센서·입력 무관): 속도 0, 팔 각도 fault_arm_pose([0, 0]) 발행
+            self.state = 'fault'
+            self.detect_streak = 0
+            self._stop_vehicle()
+            self.tgt_waffle_linear_vel = self.tgt_waffle_angular_vel = 0.0
+            self.tgt_pan_deg, self.tgt_tilt_deg = self.fault_arm_pose
+            self.tgt_arm_pose = list(self.fault_arm_pose)
 
     # ================= 계산 =================
     @staticmethod
@@ -370,6 +449,13 @@ class PlanningMaster(Node):
         self.prev_yaw_deg = self.cur_yaw_deg
 
     def state_machine_run(self):
+        if self.health_blocked:
+            # fault 유지: check_health에서 정한 정지 명령(속도 0, 팔 fault_arm_pose)을 그대로 발행
+            self._stop_vehicle()
+            return
+        if self.state == 'fault':
+            # 장애 해소 → idle (같은 주기에 idle 동작: 팔 nominal, 검출 대기)
+            self.state = 'idle'
         # 인지 토픽 침묵: 미검출(z=0 수신)과 구분해 상태를 유지한 채 차체 정지
         if self.detection_stale and self.state in ('idle', 'tracking', 'searching'):
             self._stop_vehicle()
@@ -411,7 +497,7 @@ class PlanningMaster(Node):
                 return
 
             self.cmd_vel_msg.linear.x = 0.0
-            if self.imu_stale:
+            if self.heading_stale:
                 # 회전량을 셀 수 없으면 회전하지 않는다.
                 self.cmd_vel_msg.angular.z = 0.0
                 self.prev_yaw_deg = self.cur_yaw_deg
@@ -450,8 +536,14 @@ class PlanningMaster(Node):
             flags.append('ARM_INVALID')
         if self.imu_stale:
             flags.append('IMU_TIMEOUT')
+        if self.heading_stale:
+            flags.append('HEADING_UNAVAILABLE')
+        reason = self.health_reason
+        if reason == 'ok' and self.state == 'lost':
+            reason = 'target_lost'
         text = self.state.upper()
-        return f'{text}|{",".join(flags)}' if flags else text
+        text = f'{text}|{",".join(flags)}' if flags else text
+        return f'{text} reason={reason} heading={self.heading_source}'
 
     def _publish(self):
         self.cmd_vel_msg.angular.z = self._clip(
@@ -459,11 +551,13 @@ class PlanningMaster(Node):
             (-self.waffle_max_angular_vel, self.waffle_max_angular_vel),
         )
         self.cmd_vel_pub.publish(self.cmd_vel_msg)  # /cmd_vel 발행
-        self.arm_cmd_pub.publish(Float32MultiArray(data=[float(v) for v in self.tgt_arm_pose]))  # /arm/command 발행
+        if self.arm_publish_enabled:
+            self.arm_cmd_pub.publish(Float32MultiArray(data=[float(v) for v in self.tgt_arm_pose]))
         self.status_pub.publish(String(data=self._status_text()))  # /tracking_status 발행
 
     def run(self):
         self.check_timeouts()
+        self.check_health()
         self.calc_cur_object_pos()
         self.state_machine_run()
         self._publish()

@@ -41,6 +41,8 @@ class BaseKinematics
 public:
   explicit BaseKinematics(const BaseParams & p);
 
+  void stop() { v_ref_ = 0.0; w_ref_ = 0.0; }
+
   // v, w: 받은 /cmd_vel,  fresh: cmd_timeout 안에 받은 명령인지,  dt: 실제 경과 시간 [s]
   WheelCommand step(double v, double w, bool fresh, double dt);
 

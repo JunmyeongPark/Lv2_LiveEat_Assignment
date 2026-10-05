@@ -2,7 +2,7 @@
 //
 // [입력 토픽]  (planning_master 에서 옴)
 //   /planning/cmd_vel      geometry_msgs/Twist          linear.x = v [m/s], angular.z = ω [rad/s]
-//   /planning/arm_command  std_msgs/Float64MultiArray   [yaw, pitch] [rad]
+//   /planning/arm_command  std_msgs/Float32MultiArray   [yaw, pitch] [deg]
 // [출력 토픽]
 //   (planning_master 로)
 //   /control/imu      sensor_msgs/Imu          IMU 원본: yaw (±π, 쿼터니언), 각속도 z
@@ -36,7 +36,7 @@
 #include "sensor_msgs/msg/imu.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "std_msgs/msg/float32.hpp"
-#include "std_msgs/msg/float64_multi_array.hpp"
+#include "std_msgs/msg/float32_multi_array.hpp"
 
 using namespace std::chrono_literals;
 
@@ -58,6 +58,10 @@ public:
     port_ = declare_parameter("port", std::string("/dev/ttyACM0"));
     baud_ = declare_parameter("baud", 1000000);
     cmd_timeout_ = declare_parameter("cmd_timeout_s", 0.3);   // 이 시간 동안 /cmd_vel 없으면 바퀴 정지
+    arm_cmd_timeout_ = declare_parameter("arm_cmd_timeout_s", 0.3);
+    if (!std::isfinite(arm_cmd_timeout_) || arm_cmd_timeout_ <= 0.0) {
+      throw std::invalid_argument("arm_cmd_timeout_s must be finite and positive");
+    }
     motor_enable_ = declare_parameter("motor_enable", true);  // false: 상태는 받고, 모터에는 정지만 보냄
     const auto log_dir = declare_parameter("log_dir", std::string("results/logs"));  // "" 이면 기록 안 함
 
@@ -73,10 +77,15 @@ public:
         cmd_w_ = m->angular.z;
         cmd_vel_t_ = now();
       });
-    arm_sub_ = create_subscription<std_msgs::msg::Float64MultiArray>(
-      "/planning/arm_command", 10, [this](std_msgs::msg::Float64MultiArray::ConstSharedPtr m) {
-        if (m->data.size() >= 2) {
-          arm_goal_ = ArmAngles{m->data[0], m->data[1]};
+    arm_sub_ = create_subscription<std_msgs::msg::Float32MultiArray>(
+      "/planning/arm_command", 10, [this](std_msgs::msg::Float32MultiArray::ConstSharedPtr m) {
+        if (m->data.size() >= 2 && std::isfinite(m->data[0]) && std::isfinite(m->data[1])) {
+          arm_goal_ = ArmAngles{m->data[0] * DEG, m->data[1] * DEG};
+          arm_goal_t_ = now();
+          arm_hold_.reset();
+        } else {
+          arm_goal_.reset();
+          arm_goal_t_.reset();
         }
       });
     imu_pub_ = create_publisher<sensor_msgs::msg::Imu>("/control/imu", 10);
@@ -163,10 +172,34 @@ private:
       serial_tx();                    // 상태가 아직 없어도 정지 명령(heartbeat)은 보냄
       return;
     }
+    // 실제 모터 읽기 실패/상태 수신 단절 시 이전 피드백으로 구동하지 않는다.
+    if (!wheel_state_valid_ || !arm_state_valid_ ||
+      !state_t_ || (t - *state_t_).seconds() > 0.5) {
+      wheel_ = WheelCommand{};
+      base_.stop();
+      arm_cmd_.reset();
+      arm_goal_.reset();
+      arm_goal_t_.reset();
+      arm_hold_.reset();
+      serial_tx();
+      return;
+    }
     const bool fresh = cmd_vel_t_ && (t - *cmd_vel_t_).seconds() < cmd_timeout_;
     wheel_ = base_.step(cmd_v_, cmd_w_, fresh, dt);              // ②
-    arm_cmd_ = arm_.step(                                        // ③
-      arm_goal_, ArmAngles{state_->arm_pos[0], state_->arm_pos[1]}, dt);
+    const double arm_age = arm_goal_t_ ? (t - *arm_goal_t_).seconds() : -1.0;
+    const bool arm_fresh = arm_goal_ && arm_age >= 0.0 && arm_age < arm_cmd_timeout_;
+    const ArmAngles measured{state_->arm_pos[0], state_->arm_pos[1]};
+    if (arm_fresh) {
+      arm_cmd_ = arm_.step(arm_goal_, measured, dt);              // ③
+    } else {
+      // 과거 목표를 취소한다. 매 주기 측정값을 따라가지 않고 정지 자세를 고정한다.
+      arm_goal_.reset();
+      arm_goal_t_.reset();
+      if (!arm_hold_) {
+        arm_hold_ = arm_.hold(measured);
+      }
+      arm_cmd_ = arm_hold_;
+    }
     serial_tx();                      // ④
 
     if (log_.is_open()) {
@@ -194,6 +227,10 @@ private:
       }
       return;
     }
+    wheel_state_valid_ = std::isfinite(st->wheel_pos[0]) && std::isfinite(st->wheel_pos[1]) &&
+      std::isfinite(st->wheel_vel[0]) && std::isfinite(st->wheel_vel[1]);
+    arm_state_valid_ = std::isfinite(st->arm_pos[0]) && std::isfinite(st->arm_pos[1]) &&
+      std::isfinite(st->arm_vel[0]) && std::isfinite(st->arm_vel[1]);
     state_ = st;
     state_t_ = now();
     const auto stamp = now();
@@ -211,7 +248,14 @@ private:
     js.name = {"wheel_left_joint", "wheel_right_joint", "arm_yaw_joint", "arm_pitch_joint"};
     js.position = {st->wheel_pos[0], st->wheel_pos[1], st->arm_pos[0], st->arm_pos[1]};
     js.velocity = {st->wheel_vel[0], st->wheel_vel[1], st->arm_vel[0], st->arm_vel[1]};
-    js_pub_->publish(js);
+    // 실패값을 새 정상 피드백으로 포장하지 않는다. planning의 joint timeout이 동작한다.
+    if (arm_state_valid_ && wheel_state_valid_) {
+      js_pub_->publish(js);
+    }
+    // 실패한 휠 측정으로 odometry를 오염시키거나 수신 시각을 갱신하지 않는다.
+    if (!wheel_state_valid_) {
+      return;
+    }
 
     const BaseOdom o = base_.odom(st->wheel_vel[0], st->wheel_vel[1], st->wheel_pos[0], st->wheel_pos[1]);
     odom_ = o;
@@ -255,6 +299,7 @@ private:
   std::string port_;
   int64_t baud_;
   double cmd_timeout_;
+  double arm_cmd_timeout_;
   bool motor_enable_;
 
   // 계산 모듈
@@ -263,8 +308,11 @@ private:
   SerialBridge serial_;
 
   // 상태
+  bool wheel_state_valid_ = false, arm_state_valid_ = false;
   double cmd_v_ = 0.0, cmd_w_ = 0.0;               // 마지막으로 받은 (v, ω)
   std::optional<rclcpp::Time> cmd_vel_t_;          // 받은 시각
+  std::optional<rclcpp::Time> arm_goal_t_;
+  std::optional<ArmAngles> arm_hold_;
   std::optional<ArmAngles> arm_goal_;              // 마지막으로 받은 팔 목표
   std::optional<RobotState> state_;                // OpenCR 에서 받은 최신 상태
   std::optional<rclcpp::Time> state_t_;
@@ -276,7 +324,7 @@ private:
 
   // ROS
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_sub_;
-  rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr arm_sub_;
+  rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr arm_sub_;
   rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_pub_;
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr js_pub_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;

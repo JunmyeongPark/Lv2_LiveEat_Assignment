@@ -2,6 +2,7 @@
 #include "motor_driver.h"
 
 #include <Dynamixel2Arduino.h>
+#include <math.h>
 
 using namespace ControlTableItem;
 
@@ -100,12 +101,16 @@ void motor_read()
     if (read_vel_pos(WHEEL_ID[i], v, p)) {
       state.wheel_vel[i] = WHEEL_DIR[i] * v * RADS_PER_VEL;
       state.wheel_pos[i] = WHEEL_DIR[i] * p * RAD_PER_POS;
+    } else {
+      state.wheel_pos[i] = state.wheel_vel[i] = NAN;
     }
   }
   for (int i = 0; i < 2; i++) {
     if (read_vel_pos(ARM_ID[i], v, p)) {
       state.arm_vel[i] = ARM_DIR[i] * v * RADS_PER_VEL;
       state.arm_pos[i] = ARM_DIR[i] * (p - ARM_ZERO[i]) * RAD_PER_POS;
+    } else {
+      state.arm_pos[i] = state.arm_vel[i] = NAN;
     }
   }
 }

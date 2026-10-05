@@ -7,6 +7,7 @@ planning_master:
     # 토픽
     detection_topic: /detection           # PointStamped, z: 0=미검출(depth 실패 포함), >0=depth[m]
     imu_topic: /control/imu                # sensor_msgs/Imu, yaw만 담은 쿼터니언
+    odom_yaw_topic: /control/odom_yaw_deg  # Float32 [deg], IMU 진단 이상/침묵 시 fallback
     joint_states_topic: /control/joint_states  # sensor_msgs/JointState, position [rad]
     cmd_vel_topic: /planning/cmd_vel
     arm_cmd_topic: /planning/arm_command   # Float32MultiArray [pan, tilt] deg
@@ -18,6 +19,7 @@ planning_master:
     control_rate_hz: 30.0
     detection_timeout_s: 0.5               # 발제 기본값
     imu_timeout_s: 0.5
+    odom_timeout_s: 0.5
     joint_timeout_s: 0.5
     recover_frames: 3                      # 연속 3프레임 검출 → tracking
 
@@ -45,12 +47,15 @@ planning_master:
     search_angular_vel: 0.8                # rad/s, 720° 탐색 ≈ 15.7 s (46°/s, 30fps면 시야 통과 중 약 45프레임)
     search_max_turns: 2                    # 누적 2바퀴 → lost
     lost_side_ex_threshold: 0.5            # e_x >= 0.5 → 오른쪽에서 사라짐
+    fault_arm_pose: [0.0, 0.0]             # FAULT(입력·센서·모터 장애) 때 발행할 팔 각도 [pan, tilt] deg. 속도는 0
 
     # --- 이슈 #6: sensor health (health_monitor / state_machine) ---
     # status_topic은 위 토픽 섹션과 같은 값이라 한 번만 둠
-    # odom_topic: <미정>                 # TODO(이슈 #6): IMU fallback 용 엔코더 heading. control/base_kinematics 가 발행 — 토픽·타입·단위 확정 후 활성화
+    # 진단 토픽 5개 + 실제 입력 신선도를 함께 검사한다.
+    # IMU 불가 시 신선한 odom_yaw 사용, 둘 다 불가하면 LOST/정지.
+    # /tracking_status 예: LOST|IMU_TIMEOUT reason=mcu_fault heading=none
     health:
-      enabled: true                      # false: health 반영 끔 (다른 팀원 발행이 아직 없을 때)
+      enabled: true                      # false: 진단 토픽 검사만 끔. 실제 데이터 타임아웃/유효성 검사는 유지.
       topics:
         camera: /perception/camera_health
         imu: /control/imu_health          # 팀장님 확인 완료 (이슈 원문의 /control/imu_sensor 는 오타)

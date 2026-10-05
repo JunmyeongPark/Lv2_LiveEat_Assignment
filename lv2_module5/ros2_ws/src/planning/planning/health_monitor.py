@@ -1,4 +1,4 @@
-"""health_monitor.py — 인지·제어 health 4개 구독 → 종합 판정 (이슈 #6, FDIR의 Recovery)
+"""health_monitor.py — 인지·제어 health 5개 구독 → 종합 판정 (이슈 #6, FDIR의 Recovery)
 
 판정 우선순위: mcu_fault > motor_fault > camera_stale > imu_fallback > ok
 - 센서가 "비정상"이 되는 경우 두 가지
@@ -41,7 +41,7 @@ class HealthResult:
 
     @property
     def use_encoder_heading(self):
-        # True 면 heading 을 엔코더 odometry 로 추정해야 함 (선택 기능, 아직 미구현 TODO)
+        # 메인 노드는 이 판정과 실제 heading 입력 신선도를 함께 검사한다.
         return not self.imu_ok
 
 
@@ -51,13 +51,16 @@ class HealthMonitor:
         self._timeout = float(self._param('health.stale_timeout_s', 0.5))
         self._recover_n = int(self._param('health.recover_ok_count', 3))
         self._warn_ok = bool(self._param('health.warn_is_ok', True))
+        if self._timeout <= 0 or self._recover_n < 1:
+            raise ValueError('health timeout must be positive and recover_ok_count >= 1')
 
         self._last_rx = {s: None for s in SENSORS}   # 마지막 수신 시각(초)
         self._ok_cnt = {s: 0 for s in SENSORS}       # 연속 OK 메시지 수
+        self._subscriptions = []
         for s in SENSORS:
             topic = self._param(f'health.topics.{s}', DEFAULT_TOPICS[s])
-            node.create_subscription(DiagnosticStatus, topic,
-                                     partial(self._cb, s), qos_profile_sensor_data)
+            self._subscriptions.append(node.create_subscription(
+                DiagnosticStatus, topic, partial(self._cb, s), qos_profile_sensor_data))
 
     def _param(self, name, default):
         if not self._node.has_parameter(name):
@@ -69,13 +72,18 @@ class HealthMonitor:
 
     def _cb(self, sensor, msg):
         level = _level_to_int(msg.level)
-        self._last_rx[sensor] = self._now()
+        now = self._now()
+        last = self._last_rx[sensor]
+        # evaluate 사이에 끊겼다가 재개된 경우도 연속 정상 횟수를 새로 센다.
+        if last is None or not 0 <= now - last <= self._timeout:
+            self._ok_cnt[sensor] = 0
+        self._last_rx[sensor] = now
         good = level == OK or (level == WARN and self._warn_ok)
-        self._ok_cnt[sensor] = self._ok_cnt[sensor] + 1 if good else 0
+        self._ok_cnt[sensor] = min(self._ok_cnt[sensor] + 1, self._recover_n) if good else 0
 
     def _sensor_ok(self, sensor, now):
         last = self._last_rx[sensor]
-        if last is None or now - last > self._timeout:   # 메시지가 안 옴
+        if last is None or not 0 <= now - last <= self._timeout:
             self._ok_cnt[sensor] = 0
             return False
         return self._ok_cnt[sensor] >= self._recover_n

@@ -22,7 +22,7 @@ struct MotorState
 // 통신 시작 + 바퀴 Velocity 모드 / 팔 Position 모드 설정
 void motor_setup();
 
-// 바퀴·팔 현재 위치·속도 읽기 (실패한 모터는 이전 값 유지)
+// 바퀴·팔 현재 위치·속도 읽기 (실패한 모터는 위치·속도 NaN으로 표시)
 void motor_read();
 const MotorState &motor_state();
 
