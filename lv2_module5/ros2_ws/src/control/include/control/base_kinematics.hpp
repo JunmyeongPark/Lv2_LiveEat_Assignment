@@ -26,14 +26,13 @@ struct WheelCommand
   double v_ref = 0.0, w_ref = 0.0;  // 가속도 제한을 거친 목표 (v, ω)
 };
 
-// 바퀴 IMU 로 계산한 몸통 상태
+// 엔코더(바퀴)로 계산한 몸통 상태
+//   IMU 는 여기서 쓰지 않고 /control/imu 로 따로 보낸다. 어느 쪽을 믿을지는 판단부가 정함
 struct BaseOdom
 {
-  double v = 0.0;           // 몸 직진속도, 앞 +(m/s)
-  double w = 0.0;           // 몸 회전속도, 반시계 +(rad/s)
-  double yaw = 0.0;         // 몸 방향(rad), [-π, π]
-  double yaw_total = 0.0;   // 몸 누적 방향(rad), ±π 에서 안 끊기고 계속 늘어남
-  bool from_imu = false;    // true: IMU yaw, false: 엔코더 yaw
+  double v = 0.0;     // 몸 직진속도, 앞 +(m/s)
+  double w = 0.0;     // 몸 회전속도, 반시계 +(rad/s)
+  double yaw = 0.0;   // 몸 방향(rad), [-π, π], 노드 시작 시 0
 };
 
 
@@ -44,16 +43,16 @@ public:
 
   // v, w: 받은 /cmd_vel,  fresh: cmd_timeout 안에 받은 명령인지,  dt: 실제 경과 시간 [s]
   WheelCommand step(double v, double w, bool fresh, double dt);
-  // wheel_vel_l/r: 바퀴 속도 [rad/s], pos_l/r: 바퀴 적분 위치 [rad], imu_ok: IMU yaw 사용 가능, imu_yaw: IMU yaw [rad]
-  BaseOdom odom(double wheel_vel_l, double wheel_vel_r, double pos_l, double pos_r, bool imu_ok, double imu_yaw);
+
+  // wheel_vel_l/r: 바퀴 속도 [rad/s], pos_l/r: 바퀴 누적 각도 [rad]
+  BaseOdom odom(double wheel_vel_l, double wheel_vel_r, double pos_l, double pos_r);
 
 private:
   BaseParams p_;
   double v_ref_ = 0.0, w_ref_ = 0.0;
   bool odom_started_ = false;
   double prev_pos_l_ = 0.0, prev_pos_r_ = 0.0;
-  double prev_imu_yaw_ = 0.0;
-  double yaw_total_ = 0.0;
+  double yaw_total_ = 0.0;   // 엔코더로 누적한 yaw (±π 에서 안 끊김)
 };
 
 }  // namespace control

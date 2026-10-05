@@ -5,11 +5,11 @@
 //   /arm/command   std_msgs/Float64MultiArray   [yaw, pitch] [rad]
 // [출력 토픽]
 //   (planning_master 로)
-//   /odom             nav_msgs/Odometry        v [m/s], ω [rad/s], yaw (±π, 쿼터니언)
-//                                              yaw 는 IMU 우선, IMU 이상 시 엔코더
-//   /odom/yaw_total   std_msgs/Float64         누적 yaw [rad], ±π 에서 안 끊기고 계속 늘어남
+//   /control/imu      sensor_msgs/Imu          IMU 원본: yaw (±π, 쿼터니언), 각속도 z
+//   /control/odom     nav_msgs/Odometry        엔코더 기반: v [m/s], ω [rad/s], yaw (±π, 쿼터니언, 시작 0)
+//                                              yaw 형식은 /control/imu 와 같게 맞춤
+//                     (IMU · 엔코더 중 어느 yaw 를 쓸지는 판단부에서 정함)
 //   (디버깅 · bag 기록용 원본)
-//   /imu              sensor_msgs/Imu          IMU yaw (쿼터니언), 각속도 z
 //   /joint_states     sensor_msgs/JointState   wheel_left_joint, wheel_right_joint,
 //                                              arm_yaw_joint, arm_pitch_joint
 // [실행]
@@ -33,7 +33,6 @@
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/imu.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
-#include "std_msgs/msg/float64.hpp"
 #include "std_msgs/msg/float64_multi_array.hpp"
 
 using namespace std::chrono_literals;
@@ -77,10 +76,9 @@ public:
           arm_goal_ = ArmAngles{m->data[0], m->data[1]};
         }
       });
-    imu_pub_ = create_publisher<sensor_msgs::msg::Imu>("/imu", 10);
+    imu_pub_ = create_publisher<sensor_msgs::msg::Imu>("/control/imu", 10);
     js_pub_ = create_publisher<sensor_msgs::msg::JointState>("/joint_states", 10);
-    odom_pub_ = create_publisher<nav_msgs::msg::Odometry>("/odom", 10);
-    yaw_total_pub_ = create_publisher<std_msgs::msg::Float64>("/odom/yaw_total", 10);
+    odom_pub_ = create_publisher<nav_msgs::msg::Odometry>("/control/odom", 10);
 
     // ---------- 기록 ----------
     if (!log_dir.empty()) {
@@ -140,7 +138,7 @@ private:
     log_path_ = dir + "/control_" + stamp + ".csv";
     log_.open(log_path_);
     log_ << "t,dt,loop_ms,v_ref,w_ref,wL_ref,wL,wR_ref,wR,"
-            "yaw_cmd,yaw,pitch_cmd,pitch,imu_yaw,odom_v,odom_w,yaw_total,from_imu\n";
+            "yaw_cmd,yaw,pitch_cmd,pitch,imu_yaw,odom_v,odom_w,odom_yaw\n";
     log_ << std::fixed << std::setprecision(4);
   }
 
@@ -176,8 +174,8 @@ private:
            << wheel_.right << ',' << s.wheel_vel[1] << ','
            << arm_cmd_->yaw << ',' << s.arm_pos[0] << ','
            << arm_cmd_->pitch << ',' << s.arm_pos[1] << ','
-           << s.imu_yaw << ',' << odom_.v << ',' << odom_.w << ',' 
-           << odom_.yaw_total << ',' << odom_.from_imu << '\n';
+           << s.imu_yaw << ',' << odom_.v << ',' << odom_.w << ','
+           << odom_.yaw << '\n';
     }
   }
 
@@ -210,7 +208,7 @@ private:
     js.velocity = {st->wheel_vel[0], st->wheel_vel[1], st->arm_vel[0], st->arm_vel[1]};
     js_pub_->publish(js);
 
-    const BaseOdom o = base_.odom(st->wheel_vel[0], st->wheel_vel[1], st->wheel_pos[0], st->wheel_pos[1], false, st->imu_yaw);
+    const BaseOdom o = base_.odom(st->wheel_vel[0], st->wheel_vel[1], st->wheel_pos[0], st->wheel_pos[1]);
     odom_ = o;
     nav_msgs::msg::Odometry odom;
     odom.header.stamp = stamp;
@@ -221,10 +219,6 @@ private:
     odom.pose.pose.orientation.z = std::sin(o.yaw / 2.0);  // 방향 yaw (쿼터니언)
     odom.pose.pose.orientation.w = std::cos(o.yaw / 2.0); 
     odom_pub_->publish(odom);
-
-    std_msgs::msg::Float64 yaw_total;
-    yaw_total.data = o.yaw_total;         // o 의 누적 yaw
-    yaw_total_pub_->publish(yaw_total);
 
   }
 
@@ -275,7 +269,6 @@ private:
   rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_pub_;
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr js_pub_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
-  rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr yaw_total_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
 
   // 기록

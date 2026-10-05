@@ -13,4 +13,5 @@ control_master가 남긴 원본 CSV에서 시험 구간만 잘라낸 파일입�
 
 - 시험 조건: 노트북 + OpenCR(USB), 바퀴를 띄운 상태, IMU 통합 전 (`from_imu` = 0)
 - 10/3 파일과 10/4 파일은 칸 구성이 다릅니다. 10/4부터 각도 보정 칸(`thL_err` 등)이 빠지고 `odom_v, odom_w, yaw_total, from_imu`가 추가됨
+- 10/5부터는 `yaw_total, from_imu` 대신 `odom_yaw`(엔코더 기반, ±π) 칸으로 기록됩니다. IMU yaw 는 원래대로 `imu_yaw` 칸에 있음 (토픽도 `/control/imu`, `/control/odom` 으로 변경)
 - 각도 단위: rad, 속도: m/s · rad/s
