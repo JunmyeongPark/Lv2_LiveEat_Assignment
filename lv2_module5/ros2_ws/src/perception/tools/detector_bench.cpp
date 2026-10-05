@@ -38,6 +38,7 @@
 #ifdef BENCH_WITH_ROSBAG
 #include <cv_bridge/cv_bridge.hpp>
 #include <rclcpp/serialization.hpp>
+#include <rclcpp/time.hpp>
 #include <rosbag2_cpp/reader.hpp>
 #include <rosbag2_storage/storage_filter.hpp>
 #include <sensor_msgs/msg/compressed_image.hpp>
@@ -174,7 +175,9 @@ class BagSource : public FrameSource {
       } else if (type_ == "sensor_msgs/msg/CompressedImage") {
         sensor_msgs::msg::CompressedImage img;
         cimg_ser_.deserialize_message(&sm, &img);
-        f.bgr = cv::imdecode(img.data, cv::IMREAD_COLOR);
+        // Lyrical부터 data가 rosidl::Buffer라 InputArray로 바로 안 넘어감 → 포인터로 감싸기 (복사 없음)
+        const cv::Mat buf(1, static_cast<int>(img.data.size()), CV_8UC1, const_cast<uint8_t*>(img.data.data()));
+        f.bgr = cv::imdecode(buf, cv::IMREAD_COLOR);
         f.stamp_ns = rclcpp::Time(img.header.stamp).nanoseconds();
       } else {
         throw std::runtime_error("unsupported topic type: " + type_);

@@ -49,8 +49,9 @@ make -j4 install
 
 # perception 빌드
 cd lv2_module5/ros2_ws
+# 배포 빌드(scripts/build_pi.sh)는 NCNN만 → 비교용으로 ONNX 백엔드·detector_bench를 켜서 빌드
 colcon build --packages-select perception --cmake-args \
-  -DONNXRUNTIME_ROOT=$HOME/onnxruntime -Dncnn_DIR=$HOME/ncnn-install/lib/cmake/ncnn
+  -DPERCEPTION_WITH_ONNX=ON -DPERCEPTION_BUILD_BENCH=ON -DONNXRUNTIME_ROOT=$HOME/onnxruntime -Dncnn_DIR=$HOME/ncnn-install/lib/cmake/ncnn
 source install/setup.bash
 
 # 분석 도구 파이썬 환경 (레포 루트)
@@ -87,4 +88,6 @@ python3 compare_backends.py ../../results/benchmark/1003
 | `plots/` | latency 분포, 프레임별 latency, 온도·CPU, e_x 일치도 |
 
 ## 7. 실시간 노드에서 확인 (선택)
+측정 스크립트: `realtime/controlled_run.sh`(NCNN/ONNX × 640x640/640x480), `realtime/run320.sh`(320x256). 결과는 `results/realtime_ncnn_vs_onnx.md`.
+
 `config/perception.yaml`의 `timing_csv`에 경로를 넣고 `backend`만 바꿔 실행하면, 실제 카메라 입력에서 프레임별 처리 시간을 기록한다 (ROS 오버헤드 포함).
