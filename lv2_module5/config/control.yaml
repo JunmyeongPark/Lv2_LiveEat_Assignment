@@ -1,1 +1,25 @@
 # 주기·시리얼 포트·바퀴 치수·관절 한계·motor_enable
+control_master:
+  ros__parameters:
+    # 주기 · 시리얼
+    rate_hz: 50.0
+    port: /dev/ttyACM0
+    baud: 1000000
+    cmd_timeout_s: 0.3        # 이 시간 동안 /cmd_vel 없으면 바퀴 정지
+    motor_enable: true        # false: 상태는 받고 모터에는 정지만 보냄 (bag 재생 · 연결 시험)
+    log_dir: results/logs     # "" 이면 CSV 기록 안 함
+
+    # 바퀴 (TurtleBot3 Waffle Pi, XM430-W210-T)
+    wheel_radius: 0.033       # [m]
+    wheel_separation: 0.287   # [m]
+    max_v: 0.26               # 직진 속도 한계 [m/s]
+    max_w: 1.82               # 회전 속도 한계 [rad/s]
+    max_wheel: 7.8            # 바퀴 속도 한계 [rad/s]
+    max_acc_v: 0.5            # [m/s^2]
+    max_acc_w: 3.0            # [rad/s^2]
+
+    # 팔 (XM430-W350-T, Position 모드) — 펌웨어 motor_driver 의 한계와 같게 맞출 것
+    arm_yaw_limit_deg: 120.0  # ± (10/5 실측: ±120° 까지 선 꼬임 없음)
+    arm_pitch_min_deg: -80.0  # (10/5 실측: 간섭 없음)
+    arm_pitch_max_deg: 85.0   # (10/5 실측: 간섭 없음)
+    arm_max_dps: 120.0        # 팔 최대 속도 [°/s]
