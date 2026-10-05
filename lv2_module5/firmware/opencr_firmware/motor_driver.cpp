@@ -24,9 +24,9 @@ const int32_t ARM_ZERO[2] = {2048, 2048};   // 팔이 0 rad 일 때의 raw 위�
 
 // 안전 한계 (Pi 의 Arm Command 가 먼저 걸지만, 보드에서 한 번 더)
 const float MAX_WHEEL   = 7.8f;                  // rad/s (W210 무부하 약 77rpm=8.1rad/s @12V 보다 아래)
-const float ARM_YAW_LIM = 90.0f * DEG_TO_RAD;    // ±
-const float ARM_PITCH_MIN = -30.0f * DEG_TO_RAD;
-const float ARM_PITCH_MAX =  60.0f * DEG_TO_RAD;
+const float ARM_YAW_LIM = 120.0f * DEG_TO_RAD;   // ± (10/5 실측: ±120° 까지 선 꼬임 없음)
+const float ARM_PITCH_MIN = -80.0f * DEG_TO_RAD; // (10/5 실측: -80° 까지 간섭 없음)
+const float ARM_PITCH_MAX =  85.0f * DEG_TO_RAD; // (10/5 실측: +85° 까지 간섭 없음)
 const float ARM_PROFILE_DPS = 150.0f;           // 모터 자체 최대 속도: Pi 의 arm_max_dps(120) 보다 약간 높게 → 평소엔 안 걸리고
                                                 // Pi 쪽 버그로 큰 점프가 와도 확 튀지 않게 막는 백업 (W350 무부하 약 46rpm=276°/s)
 

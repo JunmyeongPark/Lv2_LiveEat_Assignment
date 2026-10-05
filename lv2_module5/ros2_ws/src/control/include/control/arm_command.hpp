@@ -18,9 +18,9 @@ struct ArmAngles
 
 struct ArmParams
 {
-  double yaw_limit = 1.5708;    // 배선 꼬임 한계 ± [rad] (90°)
-  double pitch_min = -0.5236;   // [rad] (-30°)
-  double pitch_max = 1.0472;    // [rad] (60°)
+  double yaw_limit = 2.0944;    // 배선 꼬임 한계 ± [rad] (120°)
+  double pitch_min = -1.3963;   // [rad] (-80°)
+  double pitch_max = 1.4835;    // [rad] (85°)
   double max_rate = 2.0944;     // 팔 최대 속도 [rad/s] (120°/s)
 };
 

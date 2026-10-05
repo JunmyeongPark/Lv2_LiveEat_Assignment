@@ -122,9 +122,9 @@ private:
   ArmParams load_arm_params()
   {
     ArmParams p;   // config 에는 읽기 쉽게 도(deg) 로 적고, 안에서는 rad 로 씀
-    p.yaw_limit = declare_parameter("arm_yaw_limit_deg", 90.0) * DEG;
-    p.pitch_min = declare_parameter("arm_pitch_min_deg", -30.0) * DEG;
-    p.pitch_max = declare_parameter("arm_pitch_max_deg", 60.0) * DEG;
+    p.yaw_limit = declare_parameter("arm_yaw_limit_deg", 120.0) * DEG;
+    p.pitch_min = declare_parameter("arm_pitch_min_deg", -80.0) * DEG;
+    p.pitch_max = declare_parameter("arm_pitch_max_deg", 85.0) * DEG;
     p.max_rate = declare_parameter("arm_max_dps", 120.0) * DEG;
     return p;
   }

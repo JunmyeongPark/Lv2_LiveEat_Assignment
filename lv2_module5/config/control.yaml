@@ -19,7 +19,7 @@ control_master:
     max_acc_w: 3.0            # [rad/s^2]
 
     # 팔 (XM430-W350-T, Position 모드) — 펌웨어 motor_driver 의 한계와 같게 맞출 것
-    arm_yaw_limit_deg: 90.0   # 배선 꼬임 한계 ±
-    arm_pitch_min_deg: -30.0
-    arm_pitch_max_deg: 60.0
+    arm_yaw_limit_deg: 120.0  # ± (10/5 실측: ±120° 까지 선 꼬임 없음)
+    arm_pitch_min_deg: -80.0  # (10/5 실측: 간섭 없음)
+    arm_pitch_max_deg: 85.0   # (10/5 실측: 간섭 없음)
     arm_max_dps: 120.0        # 팔 최대 속도 [°/s]
