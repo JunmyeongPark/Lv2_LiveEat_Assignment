@@ -1,0 +1,93 @@
+"""health_monitor.py — 인지·제어 health 4개 구독 → 종합 판정 (이슈 #6, FDIR의 Recovery)
+
+판정 우선순위: motor_fault > camera_stale > imu_fallback > ok
+- 센서가 "비정상"이 되는 경우 두 가지
+    (1) 받은 메시지의 level 이 ERROR(2) 또는 STALE(3)
+    (2) 메시지가 아예 안 옴 (마지막 수신 후 stale_timeout_s 초 경과)
+- 복귀: OK 메시지가 recover_ok_count 번 연속 와야 "정상"으로 인정 (깜빡임 방지)
+- 시작 직후에는 OK를 아직 못 받았으므로 "비정상"으로 시작 (보수적)
+"""
+from dataclasses import dataclass
+from functools import partial
+
+from diagnostic_msgs.msg import DiagnosticStatus
+from rclpy.qos import qos_profile_sensor_data   # best-effort: 발행자가 reliable이든 아니든 연결됨
+
+OK, WARN, ERROR, STALE = 0, 1, 2, 3             # DiagnosticStatus.level 상수 값
+SENSORS = ('camera', 'imu', 'arm_motor', 'wheel_motor')
+DEFAULT_TOPICS = {                              # 기본값. 실제 값은 planning.yaml 에서 덮어씀
+    'camera': '/perception/camera_health',
+    'imu': '/control/imu_health',               # 이슈 원문은 /control/imu_sensor → 팀장님 확인 필요
+    'arm_motor': '/control/arm_motor_health',
+    'wheel_motor': '/control/wheel_motor_health',
+}
+
+
+def _level_to_int(level):
+    # ROS 2 Humble 의 rclpy 는 byte 필드를 bytes(b'\x00')로 넘겨줌 → 정수로 변환
+    if isinstance(level, (bytes, bytearray)):
+        return int.from_bytes(level, 'little')
+    return int(level)
+
+
+@dataclass
+class HealthResult:
+    camera_ok: bool
+    imu_ok: bool
+    motor_ok: bool
+    reason: str          # 'ok' | 'imu_fallback' | 'camera_stale' | 'motor_fault'
+
+    @property
+    def use_encoder_heading(self):
+        # True 면 heading 을 엔코더 odometry 로 추정해야 함 (선택 기능, 아직 미구현 TODO)
+        return not self.imu_ok
+
+
+class HealthMonitor:
+    def __init__(self, node):
+        self._node = node
+        self._timeout = float(self._param('health.stale_timeout_s', 0.5))
+        self._recover_n = int(self._param('health.recover_ok_count', 3))
+        self._warn_ok = bool(self._param('health.warn_is_ok', True))
+
+        self._last_rx = {s: None for s in SENSORS}   # 마지막 수신 시각(초)
+        self._ok_cnt = {s: 0 for s in SENSORS}       # 연속 OK 메시지 수
+        for s in SENSORS:
+            topic = self._param(f'health.topics.{s}', DEFAULT_TOPICS[s])
+            node.create_subscription(DiagnosticStatus, topic,
+                                     partial(self._cb, s), qos_profile_sensor_data)
+
+    def _param(self, name, default):
+        if not self._node.has_parameter(name):
+            self._node.declare_parameter(name, default)
+        return self._node.get_parameter(name).value
+
+    def _now(self):
+        return self._node.get_clock().now().nanoseconds * 1e-9
+
+    def _cb(self, sensor, msg):
+        level = _level_to_int(msg.level)
+        self._last_rx[sensor] = self._now()
+        good = level == OK or (level == WARN and self._warn_ok)
+        self._ok_cnt[sensor] = self._ok_cnt[sensor] + 1 if good else 0
+
+    def _sensor_ok(self, sensor, now):
+        last = self._last_rx[sensor]
+        if last is None or now - last > self._timeout:   # 메시지가 안 옴
+            self._ok_cnt[sensor] = 0
+            return False
+        return self._ok_cnt[sensor] >= self._recover_n
+
+    def evaluate(self):
+        now = self._now()
+        ok = {s: self._sensor_ok(s, now) for s in SENSORS}
+        motor_ok = ok['arm_motor'] and ok['wheel_motor']
+        if not motor_ok:
+            reason = 'motor_fault'
+        elif not ok['camera']:
+            reason = 'camera_stale'
+        elif not ok['imu']:
+            reason = 'imu_fallback'
+        else:
+            reason = 'ok'
+        return HealthResult(ok['camera'], ok['imu'], motor_ok, reason)
