@@ -24,7 +24,8 @@ runs/*
 # 실행·테스트에 필요한 모델은 공유 (다른 노트북 / 라즈베리파이)
 #   models/yolo26n.pt -> 재학습용 사전학습 모델
 #   best.pt          -> realsense_gpt.py
-#   best_ncnn_model/ -> ROS perception 노드 (C++ NCNN)
+#   best_ncnn_model/ -> ROS perception 노드 (C++ NCNN, 640x640)
+#   best_ncnn_model_480x640/, best_*.onnx -> NCNN 640x480, ONNX 640x640·640x480 (백엔드 비교 · results/realtime_ncnn_vs_onnx.md)
 # git은 제외된 폴더 안의 파일을 다시 포함할 수 없어서 폴더마다 단계적으로 풀어 줌
 !models/yolo26n.pt
 !runs/target_blue/
@@ -37,3 +38,10 @@ runs/target_blue/weights/best_ncnn_model/*
 !runs/target_blue/weights/best_ncnn_model/model.ncnn.param
 !runs/target_blue/weights/best_ncnn_model/model.ncnn.bin
 !runs/target_blue/weights/best_ncnn_model/metadata.yaml
+!runs/target_blue/weights/best_ncnn_model_480x640/
+runs/target_blue/weights/best_ncnn_model_480x640/*
+!runs/target_blue/weights/best_ncnn_model_480x640/model.ncnn.param
+!runs/target_blue/weights/best_ncnn_model_480x640/model.ncnn.bin
+!runs/target_blue/weights/best_ncnn_model_480x640/metadata.yaml
+!runs/target_blue/weights/best_640x640.onnx
+!runs/target_blue/weights/best_480x640.onnx

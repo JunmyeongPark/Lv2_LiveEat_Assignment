@@ -66,14 +66,17 @@ endif()
 
 # ---- perception_master 노드 ----
 add_executable(perception_master src/perception_master.cpp)
-target_link_libraries(perception_master perception_core)
-ament_target_dependencies(perception_master rclcpp sensor_msgs geometry_msgs cv_bridge message_filters)
+# ament_target_dependencies는 Lyrical에서 삭제됨 → 패키지가 내보내는 CMake target에 직접 링크
+target_link_libraries(perception_master perception_core
+  rclcpp::rclcpp ${sensor_msgs_TARGETS} ${geometry_msgs_TARGETS}
+  cv_bridge::cv_bridge message_filters::message_filters)
 
 # ---- detector_bench: bag/영상 오프라인 벤치마크 ----
 add_executable(detector_bench tools/detector_bench.cpp)
-target_link_libraries(detector_bench perception_core)
+target_link_libraries(detector_bench perception_core
+  rclcpp::rclcpp ${sensor_msgs_TARGETS} cv_bridge::cv_bridge
+  rosbag2_cpp::rosbag2_cpp rosbag2_storage::rosbag2_storage)
 target_compile_definitions(detector_bench PRIVATE BENCH_WITH_ROSBAG)
-ament_target_dependencies(detector_bench rclcpp sensor_msgs cv_bridge rosbag2_cpp rosbag2_storage)
 
 set_target_properties(perception_master detector_bench PROPERTIES INSTALL_RPATH "${PERCEPTION_RPATH}")
 

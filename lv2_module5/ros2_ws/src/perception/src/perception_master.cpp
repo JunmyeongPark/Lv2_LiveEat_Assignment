@@ -14,9 +14,9 @@
 
 #include <cv_bridge/cv_bridge.hpp>
 #include <geometry_msgs/msg/point_stamped.hpp>
-#include <message_filters/subscriber.h>
-#include <message_filters/sync_policies/approximate_time.h>
-#include <message_filters/synchronizer.h>
+#include <message_filters/subscriber.hpp>
+#include <message_filters/sync_policies/approximate_time.hpp>
+#include <message_filters/synchronizer.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/image.hpp>
 
@@ -69,8 +69,8 @@ class PerceptionMaster : public rclcpp::Node {
 
     pub_ = create_publisher<geometry_msgs::msg::PointStamped>(out_topic, rclcpp::QoS(1).best_effort());
 
-    color_sub_.subscribe(this, color_topic, rmw_qos_profile_sensor_data);
-    depth_sub_.subscribe(this, depth_topic, rmw_qos_profile_sensor_data);
+    color_sub_.subscribe(this, color_topic, rclcpp::SensorDataQoS());
+    depth_sub_.subscribe(this, depth_topic, rclcpp::SensorDataQoS());
     sync_ = std::make_shared<message_filters::Synchronizer<SyncPolicy>>(SyncPolicy(10), color_sub_, depth_sub_);
     sync_->setMaxIntervalDuration(rclcpp::Duration::from_seconds(slop));
     sync_->registerCallback(&PerceptionMaster::on_frames, this);

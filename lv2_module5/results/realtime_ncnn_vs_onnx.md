@@ -1,0 +1,157 @@
+# 실시간 노드 측정: NCNN vs ONNX Runtime (Raspberry Pi 4)
+
+실제 RealSense 입력으로 `perception_master`를 돌리며 `timing_csv`에 프레임별 처리 시간을 기록한 결과.
+bag을 순차 처리하는 `detector_bench`(tools/benchmark)와 달리 **ROS 오버헤드·카메라 동기화·프레임 드롭이 포함된 실제 운용 속도**다.
+
+- **2절 통제 측정이 주 결과다.** 퍽을 고정한 같은 장면에서 네 설정을 연달아 측정했다.
+- 4절 예비 측정은 장면과 길이가 제각각이라 참고용으로만 남긴다.
+
+## 1. 측정 조건
+| 항목 | 값 |
+|---|---|
+| 측정일 | 2026-10-05 |
+| 하드웨어 | Raspberry Pi 4 Model B Rev 1.5 (RAM 4GB), 방열판/팬: (기록 필요) |
+| OS / 커널 | Ubuntu 26.04.1 LTS / 7.0.0-1020-raspi, cpufreq governor `ondemand` (최대 1.8GHz) |
+| ROS | Lyrical, realsense2_camera 4.58.4 |
+| 카메라 | RealSense D435 (USB 3.0, 5000M), color·depth 640x480 @ 15 FPS, `align_depth.enable:=true` |
+| 원본 모델 | `minsikim/yolo/runs/target_blue/weights/best.pt` (md5 `837de891…`) |
+| 스레드 | 3 (1코어는 모터·IMU 통신용) |
+| conf_threshold | 0.25 |
+| 코드 | 커밋 `31945dd` + Lyrical 빌드 수정 |
+
+| 백엔드 | 입력 크기 | 모델 파일 | 버전 |
+|---|---|---|---|
+| NCNN | 640x640 | `weights/best_ncnn_model/` (md5 `f911e86a…`, 9.6MB) | ncnn `f947448` (2026-10-05 소스 빌드, Vulkan OFF) |
+| NCNN | 640x480 | `weights/best_ncnn_model_480x640/` (md5 `6f33bc88…`, 9.6MB) | 〃 |
+| ONNX | 640x640 | `weights/best_640x640.onnx` (md5 `84550408…`, 9.8MB, opset 18, onnxslim) | ONNX Runtime 1.30.0 (공식 aarch64 릴리스, CPU EP) |
+| ONNX | 640x480 | `weights/best_480x640.onnx` (md5 `d86db00b…`, 9.8MB, opset 18, onnxslim) | 〃 |
+
+두 백엔드 모두 같은 `best.pt`에서 export했고 출력은 같은 raw 형식(640x640 `(1, 5, 8400)`, 640x480 `(1, 5, 6300)`)이다. 전처리와 후처리 코드도 같다.
+
+## 2. 통제 측정 (주 결과)
+
+### 2.1 방법
+| 항목 | 값 |
+|---|---|
+| 장면 | 퍽 1개를 고정 (화면 중심 기준 오른쪽 아래, ex ≈ +0.16, ey ≈ +0.48, 거리 약 1.30 m) |
+| 순서 | NCNN 640x640 → ONNX 640x640 → ONNX 640x480 → NCNN 640x480 (ABBA, 시간에 따른 발열 영향을 양쪽 백엔드에 나눔) |
+| 실행 길이 | 75초, **처음 15초는 워밍업으로 분석에서 제외** (분석 구간 약 56초) |
+| 실행 사이 | 30초 쿨다운 |
+| 부하 | 카메라 노드와 측정 노드만 실행 (`ros2 topic echo/hz` 없음) |
+| 함께 기록 | 1초 간격 SoC 온도·CPU0 클럭, 실행별 CPU 사용률·메모리 |
+| 스크립트 | `results/logs/controlled_1005/controlled_run.sh` |
+
+### 2.2 속도 [ms]
+| 백엔드 | 입력 | 프레임 | infer mean | infer p50 | infer p95 | infer max | infer std | pre mean | callback mean | callback p95 | 발행 FPS |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| NCNN | 640x640 | 97 | **555.7** | 519.6 | 775.8 | 844.1 | 90.1 | 12.7 | 569.9 | 787.9 | **1.74** |
+| ONNX | 640x640 | 89 | 583.2 | 538.5 | 804.4 | 1403.2 | 124.9 | 13.3 | 598.2 | 822.5 | 1.56 |
+| NCNN | 640x480 | 130 | **417.1** | 395.7 | 591.7 | 674.4 | 69.5 | 10.1 | 428.4 | 606.7 | **2.27** |
+| ONNX | 640x480 | 121 | 419.4 | 399.8 | 579.8 | 718.5 | 67.0 | 9.9 | 430.8 | 590.4 | 2.12 |
+
+- 후처리(`post`)는 0.03~0.04 ms, depth 추출은 0.01 ms 수준이다. **처리 시간의 97% 이상이 추론**이다.
+- 발행 FPS = (프레임 수 − 1) / 분석 구간 첫·마지막 `header.stamp` 간격.
+- NCNN 640x480의 마지막 13초는 장면이 바뀌었다(2.4절). 이 구간을 빼고 계산해도 infer mean 411.4 / p50 391.5 / p95 568.8 ms로 결론은 같다.
+
+### 2.3 자원·발열
+| 백엔드 | 입력 | perception CPU | RSS | 온도 (시작→끝, 최대) | 1.8GHz 미만 샘플 | 평균 클럭 |
+|---|---|---|---|---|---|---|
+| NCNN | 640x640 | 235% | 245 MB | 55.0 → 70.1 °C (70.1) | 0 / 54 | 1.800 GHz |
+| ONNX | 640x640 | 268% | 253 MB | 59.9 → 74.0 °C (75.0) | 1 / 52 | 1.794 GHz |
+| ONNX | 640x480 | 269% | 235 MB | 61.3 → 68.2 °C (77.9) | 4 / 59 | 1.775 GHz |
+| NCNN | 640x480 | 240% | 225 MB | 62.8 → 75.0 °C (75.0) | 1 / 53 | 1.796 GHz |
+
+- CPU 사용률은 `ps %cpu`(프로세스 수명 평균, 4코어 최대 400%)이다. **ONNX가 같은 일을 하면서 CPU를 약 30%p 더 쓴다.**
+- 클럭 저하는 짧은 순간(분석 구간 샘플의 0~7%)뿐이고 평균 클럭은 1.775~1.800 GHz다. 온도도 80 °C 아래였다. 따라서 열 스로틀링이 결과에 준 영향은 작다고 본다. 다만 governor가 `ondemand`라 순간 클럭 하강이 발열 때문인지 governor 때문인지는 구분하지 못했다.
+- `vcgencmd get_throttled`는 권한 문제(`/dev/vcio`)로 쓰지 못해 `scaling_cur_freq`로 대신 기록했다.
+
+### 2.4 출력 일치 (같은 고정 장면)
+| 백엔드 | 입력 | 검출 | score | ex | ey | depth z [m] | depth 실패(NaN) |
+|---|---|---|---|---|---|---|---|
+| NCNN | 640x640 | 97 / 97 | 0.881 ± 0.004 | 0.1635 ± 0.0010 | 0.4793 ± 0.0006 | 1.295 ± 0.005 | 70 / 97 |
+| ONNX | 640x640 | 88 / 89 | 0.881 ± 0.005 | 0.1631 ± 0.0007 | 0.4794 ± 0.0007 | 1.297 ± 0.006 | 38 / 88 |
+| ONNX | 640x480 | 121 / 121 | 0.876 ± 0.002 | 0.1636 ± 0.0007 | 0.4800 ± 0.0010 | 1.297 ± 0.008 | 49 / 121 |
+| NCNN | 640x480 * | 66 / 66 | 0.875 ± 0.002 | 0.1636 ± 0.0008 | 0.4802 ± 0.0010 | 1.298 ± 0.007 | 31 / 66 |
+
+\* NCNN 640x480은 장면이 바뀌기 전(워밍업 후 15~44초) 구간 기준이다. 실행 시작 후 44초부터 화면 왼쪽(ex ≈ −0.47, 거리 약 1.57 m)에 다른 물체가 score 0.37~0.67로 검출되었고, 24프레임에서 퍽 대신 이 물체가 선택됐다. 무엇이었는지(다른 파란 물체, 사람 등)는 확인하지 못했다.
+
+- **두 백엔드의 출력은 사실상 같다.** 같은 입력 크기끼리 ex·ey 평균 차이는 0.0004 이하(640 px 기준 약 0.1 px)이고 score 차이는 0.001 이하다. 프레임 간 흔들림(±0.001)보다도 작다.
+- 입력 크기를 바꿔도 위치(ex·ey)와 score는 거의 같다(score −0.005).
+- **depth 실패율이 높다(36~72%).** 백엔드와 관계없는 문제로, 약 1.3 m 거리에서 박스 ROI의 유효 depth 비율이 `min_valid_ratio`(0.5)에 자주 못 미치는 것으로 보인다. 같은 장면에서 실행마다 실패율이 크게 다르므로 depth 노이즈의 영향도 있다. 별도로 확인이 필요하다.
+
+### 2.5 NCNN vs ONNX 비교
+| 입력 | 지표 | NCNN | ONNX | ONNX − NCNN |
+|---|---|---|---|---|
+| 640x640 | infer mean | 555.7 ms | 583.2 ms | +27.5 ms (+4.9%) |
+| 640x640 | infer p50 | 519.6 ms | 538.5 ms | +18.9 ms (+3.6%) |
+| 640x640 | infer p95 | 775.8 ms | 804.4 ms | +28.6 ms (+3.7%) |
+| 640x640 | infer std | 90.1 ms | 124.9 ms | +34.8 ms |
+| 640x640 | 발행 FPS | 1.74 | 1.56 | −0.18 (−10%) |
+| 640x640 | CPU | 235% | 268% | +33%p |
+| 640x480 | infer mean | 417.1 ms | 419.4 ms | +2.3 ms (+0.6%) |
+| 640x480 | infer p50 | 395.7 ms | 399.8 ms | +4.1 ms (+1.0%) |
+| 640x480 | infer p95 | 591.7 ms | 579.8 ms | −11.9 ms (−2.0%) |
+| 640x480 | infer std | 69.5 ms | 67.0 ms | −2.5 ms |
+| 640x480 | 발행 FPS | 2.27 | 2.12 | −0.15 (−7%) |
+| 640x480 | CPU | 240% | 269% | +29%p |
+
+입력 크기 효과 (640x640 → 640x480):
+| 백엔드 | infer mean | 발행 FPS |
+|---|---|---|
+| NCNN | 555.7 → 417.1 ms (−25%) | 1.74 → 2.27 (+30%) |
+| ONNX | 583.2 → 419.4 ms (−28%) | 1.56 → 2.12 (+36%) |
+
+## 3. 결론
+1. **추론 속도는 NCNN이 같거나 약간 빠르다.** 640x640에서 평균 −5%이고, 640x480에서는 차이가 1% 이내로 사실상 같다. 다만 발행 FPS는 두 크기 모두 NCNN이 7~10% 높다.
+2. **NCNN이 CPU를 약 30%p 덜 쓴다.** 같은 처리량에서 다른 노드(planning·control·시리얼)에 남는 CPU 여유가 크다. 4코어 Pi에서 이 점이 속도 차이보다 중요하다.
+3. **출력은 두 백엔드가 같다.** 위치 오차 0.1 px 수준이라, 백엔드를 바꿔도 제어 입력은 달라지지 않는다.
+4. **입력 크기 효과(−25~28%)가 백엔드 차이(0~5%)보다 훨씬 크다.**
+5. **권장: NCNN + 640x480.** 그래도 2.3 FPS라 카메라 15 FPS 중 대부분을 버린다. 추적 제어에는 아직 느리므로 입력 크기를 더 줄이는 것(예: 320x240)을 다음에 시험한다.
+
+### 남은 한계
+- 같은 프레임을 두 백엔드에 넣은 비교가 아니다. 고정 장면이라 출력 통계로 일치를 확인했지만, 프레임 단위 IoU·|Δe_x|는 같은 bag으로 `detector_bench`를 돌려야 알 수 있다(tools/benchmark/README.md).
+- 설정당 1회(약 56초) 측정이다. 반복 측정 편차는 확인하지 않았다.
+- 방열판·팬 유무를 기록하지 않았다.
+
+## 4. 예비 측정 (참고용)
+통제 측정 전에 장면과 길이를 맞추지 않고 실행한 기록이다. 각 실행 첫 5프레임은 제외했다.
+
+| 백엔드 | 입력 | 프레임 | infer mean | infer p50 | infer p95 | 발행 FPS | 검출 |
+|---|---|---|---|---|---|---|---|
+| NCNN | 640x640 | 554 | 539.8 | 511.4 | 724.4 | 1.77 | 441 (79.6%) |
+| NCNN | 640x480 | 580 | 381.4 | 369.7 | 524.8 | 2.49 | 178 (30.7%) |
+| ONNX | 640x640 | 117 | 546.5 | 509.0 | 778.6 | 1.67 | 40 (34.2%) |
+| ONNX | 640x480 | 50 | 427.9 | 394.6 | 600.8 | 2.05 | 40 (80.0%) |
+
+- ONNX 실행 중 `ros2 topic hz /detection` 값: 640x640 1.805 Hz, 640x480 2.256 Hz.
+- 예비 측정에서는 NCNN 640x480이 통제 측정보다 빨랐다(381 vs 417 ms). 예비 측정의 NCNN은 Pi가 덜 데워진 상태에서 길게 측정했고, 통제 측정은 네 실행을 연달아 돌려 온도가 더 높았다. 절대값은 발열 상태에 따라 10% 정도 달라질 수 있다.
+
+## 5. 재현 방법
+```bash
+# PC: export (같은 best.pt, 같은 입력 크기)
+yolo export model=best.pt format=ncnn imgsz=640
+yolo export model=best.pt format=ncnn imgsz=480,640
+yolo export model=best.pt format=onnx imgsz=640
+yolo export model=best.pt format=onnx imgsz=480,640
+
+# Pi: 두 백엔드를 포함해 빌드
+colcon build --packages-select perception --cmake-args \
+  -DONNXRUNTIME_ROOT=$HOME/onnxruntime -Dncnn_DIR=$HOME/ncnn-install/lib/cmake/ncnn
+
+# Pi: 카메라 실행 후 통제 측정 (약 6분, 퍽 고정)
+ros2 launch realsense2_camera rs_launch.py align_depth.enable:=true \
+  rgb_camera.color_profile:=640x480x15 depth_module.depth_profile:=640x480x15
+./controlled_run.sh      # 결과: ~/controlled_1005/
+```
+모델 경로: `~/models/target_blue/`(640x640: `model.ncnn.*`, `model.onnx`), `~/models/target_blue_480/`(640x480)
+
+## 6. 원본 데이터
+| 경로 | 내용 |
+|---|---|
+| `results/logs/controlled_1005/{ncnn,onnx}_640x{640,480}.csv` | 통제 측정 프레임별 기록 |
+| `results/logs/controlled_1005/thermal.csv` | 1초 간격 `epoch_s, temp_milli_c, cpu0_freq_khz` |
+| `results/logs/controlled_1005/events.csv`, `proc.csv` | 실행 시작·종료 시각, 실행별 CPU·RSS |
+| `results/logs/controlled_1005/*.log`, `controlled_run.sh` | 노드 로그, 측정 스크립트 |
+| `results/logs/realtime_1005/*.csv` | 예비 측정 프레임별 기록 |
+
+CSV 열: `stamp_ns, backend, pre_ms, infer_ms, post_ms, depth_ms, callback_ms, detected, score, ex, ey, z`
