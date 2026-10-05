@@ -1,1 +1,46 @@
 # 주기·FOV·목표 거리·게인·관절 한계·타임아웃
+# 실행: ros2 run planning planning_master --ros-args --params-file lv2_module5/config/planning.yaml
+# 배열 값은 실수로 적을 것 (예: 0.0). 정수로 적으면 파라미터 타입이 달라 에러 남.
+planning_master:
+  ros__parameters:
+    # 토픽
+    detection_topic: /detection           # PointStamped, z: 0=미검출(depth 실패 포함), >0=depth[m]
+    imu_topic: /control/imu                # sensor_msgs/Imu, yaw만 담은 쿼터니언
+    joint_states_topic: /control/joint_states  # sensor_msgs/JointState, position [rad]
+    cmd_vel_topic: /planning/cmd_vel
+    arm_cmd_topic: /planning/arm_command   # Float32MultiArray [pan, tilt] deg
+    status_topic: /tracking_status         # std_msgs/String
+    pan_joint_name: arm_yaw_joint          # JointState.name 기준
+    tilt_joint_name: arm_pitch_joint
+
+    # 주기 · 타임아웃
+    control_rate_hz: 30.0
+    detection_timeout_s: 0.5               # 발제 기본값
+    imu_timeout_s: 0.5
+    joint_timeout_s: 0.5
+    recover_frames: 3                      # 연속 3프레임 검출 → tracking
+
+    # 카메라 · 팔
+    nominal_pose: [0.0, 0.0]               # [pan, tilt] deg
+    hfov_deg: 69.0
+    vfov_deg: 42.0
+    pan_forward_deg: -0.09
+    camera_origin_xyz: [0.0, 0.0, 0.0]     # m (전방/좌측/위쪽), 축 일치 근사
+    pan_deg_limits: [-120.0, 120.0]
+    tilt_deg_limits: [-80.0, 85.0]         # 관절 한계. 상한은 코드에서 90 - vfov_deg/2 (= 69°)로 추가 제한
+    nominal_tolerance_deg: 1.0
+
+    # 차체
+    waffle_max_angular_vel: 1.665          # rad/s
+    waffle_yaw_gain: 0.8                   # 1/s
+    pan_yaw_weight: 0.5                    # 0~1
+    tgt_dis: 0.40                          # m
+    dis_gain: 1.0                          # 1/s
+    dis_error_threshold: 0.02              # m
+    waffle_linear_vel_limits: [-0.1, 0.2]  # m/s (후진, 전진)
+    yaw_error_threshold_deg: 3.0
+    linear_heading_limit_deg: 60.0
+    wheel_align_gain_ratio: 0.5            # 게인 = 0.5 × waffle_max_angular_vel [1/s]
+    search_angular_vel: 0.8                # rad/s, 720° 탐색 ≈ 15.7 s (46°/s, 30fps면 시야 통과 중 약 45프레임)
+    search_max_turns: 2                    # 누적 2바퀴 → lost
+    lost_side_ex_threshold: 0.5            # e_x >= 0.5 → 오른쪽에서 사라짐
