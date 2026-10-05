@@ -12,7 +12,7 @@ namespace {
 class NcnnDetector : public Detector {
  public:
   explicit NcnnDetector(const DetectorConfig& cfg) : Detector(cfg) {
-    net_.opt.num_threads = cfg.num_threads;   // Pi4: 3 (1코어는 모터·IMU용)
+    net_.opt.num_threads = cfg.num_threads;   // Pi4: 4 (perception.yaml num_threads)
     net_.opt.use_vulkan_compute = false;      // Pi4 GPU는 사용하지 않음
     if (net_.load_param(cfg.ncnn_param.c_str()) != 0)
       throw std::runtime_error("ncnn: failed to load param " + cfg.ncnn_param);

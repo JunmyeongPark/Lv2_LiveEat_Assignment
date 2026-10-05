@@ -12,6 +12,7 @@
   <depend>geometry_msgs</depend>
   <depend>cv_bridge</depend>
   <depend>message_filters</depend>
+  <!-- detector_bench (PERCEPTION_BUILD_BENCH=ON) 전용 -->
   <depend>rosbag2_cpp</depend>
   <depend>rosbag2_storage</depend>
   <!-- ncnn, onnxruntime은 rosdep 키가 없어 별도 설치 (lv2_module5/tools/benchmark/README.md 참고) -->

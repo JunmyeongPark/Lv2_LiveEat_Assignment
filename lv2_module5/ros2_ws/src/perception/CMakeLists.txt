@@ -8,10 +8,14 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE Release)   # 벤치마크 수치가 Debug 빌드로 왜곡되지 않도록
 endif()
 
-# ---- 추론 백엔드 선택 ----
-# colcon build --cmake-args -DPERCEPTION_WITH_ONNX=ON -DONNXRUNTIME_ROOT=$HOME/onnxruntime
+# ---- 빌드 구성 ----
+# 와플파이 배포 (기본): NCNN 백엔드 + perception_master 만
+#   colcon build --packages-select perception --cmake-args -Dncnn_DIR=$HOME/ncnn-install/lib/cmake/ncnn
+# 백엔드 비교·벤치마크 (tools/benchmark):
+#   ... -DPERCEPTION_WITH_ONNX=ON -DONNXRUNTIME_ROOT=$HOME/onnxruntime -DPERCEPTION_BUILD_BENCH=ON
 option(PERCEPTION_WITH_NCNN "Build NCNN backend" ON)
-option(PERCEPTION_WITH_ONNX "Build ONNX Runtime backend" ON)
+option(PERCEPTION_WITH_ONNX "Build ONNX Runtime backend (backend comparison only)" OFF)
+option(PERCEPTION_BUILD_BENCH "Build detector_bench (offline benchmark)" OFF)
 set(ONNXRUNTIME_ROOT "" CACHE PATH "ONNX Runtime install dir (contains include/ and lib/)")
 
 find_package(ament_cmake REQUIRED)
@@ -20,8 +24,6 @@ find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(message_filters REQUIRED)
-find_package(rosbag2_cpp REQUIRED)
-find_package(rosbag2_storage REQUIRED)
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs videoio)
 
 # ---- perception_core: Detector(공통 + 백엔드), DepthExtractor ----
@@ -66,17 +68,28 @@ endif()
 
 # ---- perception_master 노드 ----
 add_executable(perception_master src/perception_master.cpp)
-target_link_libraries(perception_master perception_core)
-ament_target_dependencies(perception_master rclcpp sensor_msgs geometry_msgs cv_bridge message_filters)
+# ament_target_dependencies는 Lyrical에서 삭제됨 → 패키지가 내보내는 CMake target에 직접 링크
+target_link_libraries(perception_master perception_core
+  rclcpp::rclcpp ${sensor_msgs_TARGETS} ${geometry_msgs_TARGETS}
+  cv_bridge::cv_bridge message_filters::message_filters)
 
-# ---- detector_bench: bag/영상 오프라인 벤치마크 ----
-add_executable(detector_bench tools/detector_bench.cpp)
-target_link_libraries(detector_bench perception_core)
-target_compile_definitions(detector_bench PRIVATE BENCH_WITH_ROSBAG)
-ament_target_dependencies(detector_bench rclcpp sensor_msgs cv_bridge rosbag2_cpp rosbag2_storage)
+set_target_properties(perception_master PROPERTIES INSTALL_RPATH "${PERCEPTION_RPATH}")
+install(TARGETS perception_master DESTINATION lib/${PROJECT_NAME})
 
-set_target_properties(perception_master detector_bench PROPERTIES INSTALL_RPATH "${PERCEPTION_RPATH}")
+# 배포 모델 → share/perception/models (launch/perception.launch.py가 이 경로를 사용)
+install(DIRECTORY models DESTINATION share/${PROJECT_NAME})
 
-install(TARGETS perception_master detector_bench DESTINATION lib/${PROJECT_NAME})
+# ---- detector_bench: bag/영상 오프라인 벤치마크 (테스트용) ----
+if(PERCEPTION_BUILD_BENCH)
+  find_package(rosbag2_cpp REQUIRED)
+  find_package(rosbag2_storage REQUIRED)
+  add_executable(detector_bench tools/detector_bench.cpp)
+  target_link_libraries(detector_bench perception_core
+    rclcpp::rclcpp ${sensor_msgs_TARGETS} cv_bridge::cv_bridge
+    rosbag2_cpp::rosbag2_cpp rosbag2_storage::rosbag2_storage)
+  target_compile_definitions(detector_bench PRIVATE BENCH_WITH_ROSBAG)
+  set_target_properties(detector_bench PROPERTIES INSTALL_RPATH "${PERCEPTION_RPATH}")
+  install(TARGETS detector_bench DESTINATION lib/${PROJECT_NAME})
+endif()
 
 ament_package()
