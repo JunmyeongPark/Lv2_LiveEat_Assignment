@@ -1,9 +1,12 @@
-hi, minsikim's workplace
+# perception_test — 인지(minsikim) PC 실험·학습 작업 공간
+
+와플파이 배포 빌드(`lv2_module5/`)는 이 폴더에 의존하지 않는다.
+배포 모델은 `lv2_module5/ros2_ws/src/perception/models/`에 복사되어 있고, 여기는 그 원본(학습·export)과 PC 시험 도구만 둔다.
 
 ## 폴더 구조
 
 ```
-minsikim/
+perception_test/
 ├── filter_FOV.py            RealSense D435 RGB/Depth FOV 시각화
 └── yolo/
     ├── realsense_gpt.py     실행: YOLO/HSV 검출 + 깊이 + 녹화(webm)
@@ -13,14 +16,14 @@ minsikim/
     ├── data/labels/         makesense export zip        (git 제외)
     ├── models/              사전학습 모델 yolo26n.pt     (git 포함)
     ├── dataset/             학습용 데이터, 자동 생성      (git 제외)
-    ├── runs/                학습 결과 (best.pt, best_ncnn_model만 git 포함)
+    ├── runs/                학습 결과 (best.pt, NCNN·ONNX export만 git 포함 → 배포 모델의 원본)
     └── .yolo/               가상환경                    (git 제외)
 ```
 
 ## 실행
 
 ```
-cd minsikim/yolo
+cd perception_test/yolo
 source .yolo/bin/activate
 
 python realsense_gpt.py

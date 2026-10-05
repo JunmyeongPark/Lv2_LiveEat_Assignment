@@ -14,8 +14,8 @@ bag을 순차 처리하는 `detector_bench`(tools/benchmark)와 달리 **ROS 오
 | OS / 커널 | Ubuntu 26.04.1 LTS / 7.0.0-1020-raspi, cpufreq governor `ondemand` (최대 1.8GHz) |
 | ROS | Lyrical, realsense2_camera 4.58.4 |
 | 카메라 | RealSense D435 (USB 3.0, 5000M), color·depth 640x480 @ 15 FPS, `align_depth.enable:=true` |
-| 원본 모델 | `minsikim/yolo/runs/target_blue/weights/best.pt` (md5 `837de891…`) |
-| 스레드 | 3 (1코어는 모터·IMU 통신용) |
+| 원본 모델 | `perception_test/yolo/runs/target_blue/weights/best.pt` (md5 `837de891…`) |
+| 스레드 | 3 (2.6절은 3·4 비교) |
 | conf_threshold | 0.25 |
 | 코드 | 커밋 `31945dd` + Lyrical 빌드 수정 |
 
@@ -49,10 +49,7 @@ bag을 순차 처리하는 `detector_bench`(tools/benchmark)와 달리 **ROS 오
 | ONNX | 640x640 | 89 | 583.2 | 538.5 | 804.4 | 1403.2 | 124.9 | 13.3 | 598.2 | 822.5 | 1.56 |
 | NCNN | 640x480 | 130 | **417.1** | 395.7 | 591.7 | 674.4 | 69.5 | 10.1 | 428.4 | 606.7 | **2.27** |
 | ONNX | 640x480 | 121 | 419.4 | 399.8 | 579.8 | 718.5 | 67.0 | 9.9 | 430.8 | 590.4 | 2.12 |
-프레임이 낮아 조건을 수정
-320x256, 4개의 코어 사용
-NCNN: 약 6.5프레임
-ONNX: 약 4.8프레임
+FPS가 낮아 입력을 320x256으로 줄여 추가 측정했다 → 2.6절 (NCNN 스레드 3개 6.88 FPS, 4개 5.84 FPS, ONNX 스레드 4개 4.49 FPS).
 
 - 후처리(`post`)는 0.03~0.04 ms, depth 추출은 0.01 ms 수준이다. **처리 시간의 97% 이상이 추론**이다.
 - 발행 FPS = (프레임 수 − 1) / 분석 구간 첫·마지막 `header.stamp` 간격.
@@ -106,44 +103,68 @@ ONNX: 약 4.8프레임
 | NCNN | 555.7 → 417.1 ms (−25%) | 1.74 → 2.27 (+30%) |
 | ONNX | 583.2 → 419.4 ms (−28%) | 1.56 → 2.12 (+36%) |
 
-### 2.6 입력 320x256 (NCNN, 추가 측정)
-2절과 같은 방법(75초, 워밍업 15초 제외, 쿨다운 30초)으로 320x256과 비교 기준 640x480을 연달아 측정했다. 모델은 v1(`best.pt`)이다.
-320x240은 32의 배수로 올림되어 실제로 320x256으로 추론된다. 그래서 `imgsz=256,320`으로 export했다(출력 `(1, 5, 1680)`).
+### 2.6 입력 320x256 (NCNN·ONNX, 스레드 3·4)
+320x240은 32의 배수로 올림되어 실제로 320x256으로 추론된다. 그래서 `imgsz=256,320`으로 export했다(출력 `(1, 5, 1680)`). 모델은 v1(`best.pt`)이다.
 
-| 입력 | 프레임 | infer mean | infer p50 | infer p95 | infer std | pre mean | callback mean | 발행 FPS | CPU | RSS | 온도 (시작→끝) |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| **320x256** | 384 | **107.8** | 94.3 | 172.9 | 30.6 | 2.4 | 111.2 | **6.69** | 198% | 171 MB | 53.6 → 60.9 °C |
-| 640x480 | 140 | 392.9 | 370.0 | 546.0 | 61.4 | 8.2 | 402.3 | 2.44 | 248% | 221 MB | 63.3 → 69.1 °C |
+**방법**: 2.1절과 같다(75초, 워밍업 15초 제외, 쿨다운 30초, 1초 간격 온도·클럭 기록). 측정 전 20초 동안 퍽이 110/110프레임에서 검출되는 것을 확인하고 시작했다. 장면은 끝까지 고정됐다(ex 표준편차 0.0002 이하). 순서는 아래 표의 위에서 아래로다. 데이터 `results/logs/controlled_320b/`, 스크립트 `tools/benchmark/realtime/run320b.sh`.
 
-- **320x256은 640x480보다 추론이 3.6배 빠르다**(392.9 → 107.8 ms). 발행 FPS는 2.44 → 6.69(+174%)다. 픽셀 수 비율(3.75배)과 거의 같다.
-- CPU 사용률이 50%p 줄었다(248 → 198%). 다른 노드에 남는 CPU 여유가 커진다.
-- 640x480 값(392.9 ms)은 2절 통제 측정(417.1 ms)과 6% 이내로 일치한다. 측정 환경이 재현됐다는 뜻이다.
-- 클럭은 평균 1.774~1.800 GHz이고, 온도는 70 °C 아래였다.
+#### 속도 [ms]
+| 백엔드 | 입력 | 스레드 | 프레임 | infer mean | infer p50 | infer p95 | infer max | infer std | callback mean | 발행 FPS | CPU | RSS |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| NCNN | 320x256 | 4 | 332 | 131.6 | 104.9 | 193.3 | 608.1 | 75.9 | 134.8 | 5.84 | 243% | 169 MB |
+| ONNX | 320x256 | 4 | 257 | 119.8 | 101.3 | 217.5 | 334.3 | 42.5 | 123.2 | 4.49 | 257% | 187 MB |
+| **NCNN** | **320x256** | **3** | 394 | **103.6** | **94.2** | **151.3** | 274.2 | **23.7** | 106.9 | **6.88** | **201%** | 162 MB |
+| NCNN | 640x480 | 4 | 116 | 467.2 | 442.4 | 739.3 | 982.9 | 117.7 | 476.9 | 2.08 | 269% | 223 MB |
 
-**검출 품질은 이 측정으로 비교할 수 없다.** 두 실행의 장면이 달랐다.
-- 320x256 실행 중에는 퍽이 화면 안에서 움직였다(ex −0.17 ~ +0.73).
-- 640x480 실행 중에는 퍽이 화면 오른쪽 위 구석, 약 0.4 m 거리에 있었고 score 0.27~0.53으로 140프레임 중 32프레임만 검출됐다.
-
-검출 품질은 별도로 확인했다. 검증셋 75장(노트북 CPU, 정사각 레터박스)에서 v1 모델의 결과는 아래와 같다.
-
-| 입력 | mAP50 | mAP50-95 | Recall |
+| 실행 | 온도 (시작→끝, 최대) | 1.8GHz 미만 샘플 | 평균 클럭 |
 |---|---|---|---|
-| 640 | 0.995 | 0.898 | 1.000 |
-| 320 | 0.995 | 0.773 | 1.000 |
+| NCNN 320x256 t4 | 62.8 → 69.1 °C (69.1) | 1 / 55 | 1.793 GHz |
+| ONNX 320x256 t4 | 68.2 → 74.0 °C (75.5) | 1 / 54 | 1.796 GHz |
+| NCNN 320x256 t3 | 69.1 → 71.6 °C (72.5) | 1 / 54 | 1.791 GHz |
+| NCNN 640x480 t4 | 72.1 → 75.5 °C (76.0) | 0 / 55 | 1.800 GHz |
 
-320에서도 퍽을 모두 찾지만 박스 위치 정밀도(mAP50-95)는 낮아진다. 먼 거리(2~3 m)의 퍽은 검증셋에 적을 수 있어서 실제 장면으로 따로 확인해야 한다.
+#### 출력 (같은 고정 장면)
+| 실행 | 검출 | score | ex | ey | 좌우각 [deg] | 상하각 [deg] | depth z [m] | depth 실패 |
+|---|---|---|---|---|---|---|---|---|
+| NCNN 320x256 t4 | 332 / 332 | 0.910 ± 0.001 | 0.1172 | 0.5312 | −4.04 | −11.16 | 1.104 ± 0.009 | 0 |
+| ONNX 320x256 t4 | 257 / 257 | 0.909 ± 0.002 | 0.1172 | 0.5338 | −4.04 | −11.21 | 1.104 ± 0.009 | 0 |
+| NCNN 320x256 t3 | 394 / 394 | 0.908 ± 0.002 | 0.1172 | 0.5337 | −4.04 | −11.21 | 1.105 ± 0.009 | 0 |
+| NCNN 640x480 t4 | 116 / 116 | 0.906 ± 0.001 | 0.1170 | 0.5333 | −4.04 | −11.20 | 1.105 ± 0.008 | 0 |
+
+- 네 실행 모두 **100% 검출, depth 실패 0**이다. 약 1.1 m 거리의 퍽에서는 320x256도 640x480과 같은 위치·score를 낸다(ex 차이 0.0002, 약 0.06 px).
+- 백엔드끼리도 출력이 같다. 좌우각은 네 실행 모두 −4.04°다.
+
+#### 해석
+1. **스레드 3개가 4개보다 빠르다.** NCNN 320x256에서 스레드 3개는 infer mean −21%(131.6 → 103.6 ms), 발행 FPS +18%(5.84 → 6.88), CPU −42%p다. 스레드 4개는 중앙값이 비슷한데(104.9 vs 94.2 ms) 표준편차가 3배이고 최대값이 608 ms까지 튄다. **카메라 노드와 코어를 다투면서 추론이 자주 밀리는 것**으로 본다. 스레드 3개 실행이 더 뜨거운 상태에서 측정됐는데도(69→72 °C vs 63→69 °C) 빨랐으므로 발열 때문은 아니다. 2절의 640x480 비교(스레드 3개 363 ms, 4개 416 ms)와도 같은 결과다.
+2. **NCNN 320x256은 640x480보다 3.5배 빠르다.** 같은 스레드 4개 기준 infer mean 467.2 → 131.6 ms(−72%)로, 픽셀 수 비율(3.75배)과 비슷하다. 320x256을 스레드 3개로 돌리면 103.6 ms라, 640x480 스레드 4개보다 4.5배 빠르다.
+3. **ONNX는 추론 평균은 NCNN과 비슷하거나 약간 빠르지만, 발행 FPS는 가장 낮다(4.49).** 같은 스레드 4개에서 infer mean은 ONNX가 9% 낮지만(119.8 vs 131.6 ms) p95는 12% 높고, 처리한 프레임은 23% 적다. CPU도 14%p 더 쓴다.
+4. **320x256에서는 추론보다 카메라 프레임 대기가 발행 속도를 제한한다.** 아래처럼 처리 간격이 콜백 시간보다 40~100 ms 길다. 인식 노드는 color와 정렬된 depth의 짝이 맞아야 처리한다. 그런데 정렬(`align_depth`)을 하는 카메라 노드가 추론 스레드와 CPU를 다투면서 짝이 늦게 도착하는 것으로 본다. ONNX에서 간격이 가장 긴 것(223 ms)은 ONNX Runtime 추론 스레드가 추론 뒤에도 잠시 CPU를 점유(spin)하기 때문일 수 있다. 이 원인은 추정이고, 확인하지는 않았다.
+
+| 실행 | 콜백 mean | 처리 간격 mean | 콜백만으로 가능한 FPS | 실제 발행 FPS |
+|---|---|---|---|---|
+| NCNN 320x256 t4 | 135 ms | 171 ms | 7.4 | 5.84 |
+| ONNX 320x256 t4 | 123 ms | 223 ms | 8.1 | 4.49 |
+| NCNN 320x256 t3 | 107 ms | 145 ms | 9.4 | 6.88 |
+| NCNN 640x480 t4 | 477 ms | 482 ms | 2.1 | 2.08 |
+
+#### 한계
+- 순서를 ABBA로 바꾸지 않아 뒤 실행일수록 온도가 높다(62.8 → 76.0 °C). 다만 클럭은 평균 1.79~1.80 GHz로 유지됐고, 더 뜨거운 상태의 스레드 3개 실행이 더 빨랐으므로 결론은 바뀌지 않는다.
+- 퍽 거리는 약 1.1 m 한 곳뿐이다. 먼 거리(2~3 m)에서 320x256이 퍽을 놓치는지는 확인하지 않았다.
+- 같은 날 앞서 한 320x256 측정(`results/logs/controlled_320/`, 스레드 3개, 107.8 ms, 6.69 FPS)은 측정 중 장면이 바뀌었다. 속도는 이번 스레드 3개 결과(103.6 ms, 6.88 FPS)와 4% 이내로 일치한다. 이 절의 결과로 대체한다.
 
 ## 3. 결론
 1. **추론 속도는 NCNN이 같거나 약간 빠르다.** 640x640에서 평균 −5%이고, 640x480에서는 차이가 1% 이내로 사실상 같다. 다만 발행 FPS는 두 크기 모두 NCNN이 7~10% 높다.
 2. **NCNN이 CPU를 약 30%p 덜 쓴다.** 같은 처리량에서 다른 노드(planning·control·시리얼)에 남는 CPU 여유가 크다. 4코어 Pi에서 이 점이 속도 차이보다 중요하다.
 3. **출력은 두 백엔드가 같다.** 위치 오차 0.1 px 수준이라, 백엔드를 바꿔도 제어 입력은 달라지지 않는다.
 4. **입력 크기 효과(−25~28%)가 백엔드 차이(0~5%)보다 훨씬 크다.**
-5. **권장: NCNN + 320x256.** 640x480보다 3.6배 빠르고(약 108 ms, 6.7 FPS) CPU도 50%p 덜 쓴다(2.6절). 대신 박스 위치 정밀도가 낮아지고 먼 퍽을 놓칠 수 있어서, 1~3 m 거리별 검출 확인이 남아 있다.
+5. **권장: NCNN + 320x256 + 스레드 3개.** infer 약 104 ms, 발행 6.9 FPS다. 640x480(스레드 4개)보다 4.5배 빠르고 CPU는 201%라 1코어 이상이 남는다(2.6절). 스레드 4개는 카메라 노드와 CPU를 다퉈 오히려 느리다(5.8 FPS).
+6. **320x256에서는 카메라 노드(depth 정렬)가 다음 병목이다.** 카메라 FPS를 낮추거나 정렬을 끄는 등 카메라 쪽 부하를 줄이는 것을 다음에 시험한다.
 
 ### 남은 한계
 - 같은 프레임을 두 백엔드에 넣은 비교가 아니다. 고정 장면이라 출력 통계로 일치를 확인했지만, 프레임 단위 IoU·|Δe_x|는 같은 bag으로 `detector_bench`를 돌려야 알 수 있다(tools/benchmark/README.md).
 - 설정당 1회(약 56초) 측정이다. 반복 측정 편차는 확인하지 않았다.
 - 방열판·팬 유무를 기록하지 않았다.
+- 320x256은 약 1.1 m 거리의 퍽 하나로만 확인했다. 1~3 m 거리별 검출 확인이 남아 있다.
 
 ## 4. 예비 측정 (참고용)
 통제 측정 전에 장면과 길이를 맞추지 않고 실행한 기록이다. 각 실행 첫 5프레임은 제외했다.
@@ -165,6 +186,8 @@ yolo export model=best.pt format=ncnn imgsz=640
 yolo export model=best.pt format=ncnn imgsz=480,640
 yolo export model=best.pt format=onnx imgsz=640
 yolo export model=best.pt format=onnx imgsz=480,640
+yolo export model=best.pt format=ncnn imgsz=256,320   # 2.6절
+yolo export model=best.pt format=onnx imgsz=256,320
 
 # Pi: 두 백엔드를 포함해 빌드
 colcon build --packages-select perception --cmake-args -DPERCEPTION_WITH_ONNX=ON \
@@ -173,9 +196,10 @@ colcon build --packages-select perception --cmake-args -DPERCEPTION_WITH_ONNX=ON
 # Pi: 카메라 실행 후 통제 측정 (약 6분, 퍽 고정)
 ros2 launch realsense2_camera rs_launch.py align_depth.enable:=true \
   rgb_camera.color_profile:=640x480x15 depth_module.depth_profile:=640x480x15
-tools/benchmark/realtime/controlled_run.sh      # 결과: ~/controlled_1005/  (320x256: run320.sh)
+tools/benchmark/realtime/controlled_run.sh      # 결과: ~/controlled_1005/
+tools/benchmark/realtime/run320b.sh            # 2.6절, 결과: ~/controlled_320b/
 ```
-모델 경로: `~/models/target_blue/`(640x640: `model.ncnn.*`, `model.onnx`), `~/models/target_blue_480/`(640x480)
+모델 경로: `~/models/target_blue/`(640x640: `model.ncnn.*`, `model.onnx`), `~/models/target_blue_480/`(640x480), `~/models/target_blue_256/`(320x256)
 
 ## 6. 원본 데이터
 | 경로 | 내용 |
@@ -185,6 +209,7 @@ tools/benchmark/realtime/controlled_run.sh      # 결과: ~/controlled_1005/  (3
 | `results/logs/controlled_1005/events.csv`, `proc.csv` | 실행 시작·종료 시각, 실행별 CPU·RSS |
 | `results/logs/controlled_1005/*.log` | 노드 로그 (측정 스크립트: `tools/benchmark/realtime/controlled_run.sh`) |
 | `results/logs/realtime_1005/*.csv` | 예비 측정 프레임별 기록 |
-| `results/logs/controlled_320/` | 320x256 추가 측정 (2.6절): CSV·로그·`thermal.csv` (측정 스크립트: `tools/benchmark/realtime/run320.sh`) |
+| `results/logs/controlled_320b/` | 320x256 통제 측정 (2.6절): NCNN·ONNX × 스레드 3·4, 기준 640x480. CSV·로그·`thermal.csv`·`events.csv`·`proc.csv` (스크립트: `tools/benchmark/realtime/run320b.sh`) |
+| `results/logs/controlled_320/` | 320x256 첫 측정 — 측정 중 장면이 바뀌어 2.6절 결과로 대체 (스크립트: `tools/benchmark/realtime/run320.sh`) |
 
-CSV 열: `stamp_ns, backend, pre_ms, infer_ms, post_ms, depth_ms, callback_ms, detected, score, ex, ey, z`
+CSV 열: `stamp_ns, backend, pre_ms, infer_ms, post_ms, depth_ms, callback_ms, detected, score, ex, ey, z` (`controlled_320b`부터 `angle_x_deg, angle_y_deg` 추가)

@@ -18,7 +18,7 @@ RealSense color·depth → YOLO(NCNN) 검출 → depth 추출 → `geometry_msgs
 | | `../../../tools/benchmark/` | 백엔드 비교 스크립트, `realtime/` 실시간 측정 스크립트 |
 | | `../../../results/` | 측정 결과·로그 |
 
-학습·export 원본(`best.pt`, 다른 해상도 모델)은 `minsikim/yolo/runs/target_blue/weights/`에 있다.
+학습·export 원본(`best.pt`, 다른 해상도 모델)은 `perception_test/yolo/runs/target_blue/weights/`에 있다.
 
 ## 와플파이에서
 
