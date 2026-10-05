@@ -1,17 +1,19 @@
 // control_master: 고정 주기 ① Serial RX → ② Base Kinematics → ③ Arm Command → ④ Serial TX 호출
 //
 // [입력 토픽]  (planning_master 에서 옴)
-//   /cmd_vel       geometry_msgs/Twist          linear.x = v [m/s], angular.z = ω [rad/s]
-//   /arm/command   std_msgs/Float64MultiArray   [yaw, pitch] [rad]
+//   /planning/cmd_vel      geometry_msgs/Twist          linear.x = v [m/s], angular.z = ω [rad/s]
+//   /planning/arm_command  std_msgs/Float64MultiArray   [yaw, pitch] [rad]
 // [출력 토픽]
 //   (planning_master 로)
 //   /control/imu      sensor_msgs/Imu          IMU 원본: yaw (±π, 쿼터니언), 각속도 z
 //   /control/odom     nav_msgs/Odometry        엔코더 기반: v [m/s], ω [rad/s], yaw (±π, 쿼터니언, 시작 0)
 //                                              yaw 형식은 /control/imu 와 같게 맞춤
 //                     (IMU · 엔코더 중 어느 yaw 를 쓸지는 판단부에서 정함)
+//   /control/imu_yaw_deg   std_msgs/Float32    IMU yaw [deg] (-180 ~ 180)   ← 판단부가 deg 로 바로 쓰도록
+//   /control/odom_yaw_deg  std_msgs/Float32    엔코더 yaw [deg] (-180 ~ 180, 시작 0)
 //   (디버깅 · bag 기록용 원본)
-//   /joint_states     sensor_msgs/JointState   wheel_left_joint, wheel_right_joint,
-//                                              arm_yaw_joint, arm_pitch_joint
+//   /control/joint_states sensor_msgs/JointState   wheel_left_joint, wheel_right_joint,
+//                                                  arm_yaw_joint, arm_pitch_joint
 // [실행]
 //   ros2 run control control_master --ros-args --params-file lv2_module5/config/control.yaml
 
@@ -33,6 +35,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/imu.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
+#include "std_msgs/msg/float32.hpp"
 #include "std_msgs/msg/float64_multi_array.hpp"
 
 using namespace std::chrono_literals;
@@ -65,20 +68,22 @@ public:
 
     // ---------- 토픽 ----------
     cmd_vel_sub_ = create_subscription<geometry_msgs::msg::Twist>(
-      "/cmd_vel", 10, [this](geometry_msgs::msg::Twist::ConstSharedPtr m) {
+      "/planning/cmd_vel", 10, [this](geometry_msgs::msg::Twist::ConstSharedPtr m) {
         cmd_v_ = m->linear.x;
         cmd_w_ = m->angular.z;
         cmd_vel_t_ = now();
       });
     arm_sub_ = create_subscription<std_msgs::msg::Float64MultiArray>(
-      "/arm/command", 10, [this](std_msgs::msg::Float64MultiArray::ConstSharedPtr m) {
+      "/planning/arm_command", 10, [this](std_msgs::msg::Float64MultiArray::ConstSharedPtr m) {
         if (m->data.size() >= 2) {
           arm_goal_ = ArmAngles{m->data[0], m->data[1]};
         }
       });
     imu_pub_ = create_publisher<sensor_msgs::msg::Imu>("/control/imu", 10);
-    js_pub_ = create_publisher<sensor_msgs::msg::JointState>("/joint_states", 10);
+    js_pub_ = create_publisher<sensor_msgs::msg::JointState>("/control/joint_states", 10);
     odom_pub_ = create_publisher<nav_msgs::msg::Odometry>("/control/odom", 10);
+    imu_yaw_deg_pub_ = create_publisher<std_msgs::msg::Float32>("/control/imu_yaw_deg", 10);
+    odom_yaw_deg_pub_ = create_publisher<std_msgs::msg::Float32>("/control/odom_yaw_deg", 10);
 
     // ---------- 기록 ----------
     if (!log_dir.empty()) {
@@ -217,9 +222,15 @@ private:
     odom.twist.twist.linear.x = o.v;   // o 의 직진 속도
     odom.twist.twist.angular.z = o.w;  // o 의 회전속도
     odom.pose.pose.orientation.z = std::sin(o.yaw / 2.0);  // 방향 yaw (쿼터니언)
-    odom.pose.pose.orientation.w = std::cos(o.yaw / 2.0); 
+    odom.pose.pose.orientation.w = std::cos(o.yaw / 2.0);
     odom_pub_->publish(odom);
 
+    // 같은 yaw 를 deg 숫자 하나로도 보냄 (rad → deg: ÷ DEG = × 180/π)
+    std_msgs::msg::Float32 yaw_deg;
+    yaw_deg.data = static_cast<float>(st->imu_yaw / DEG);
+    imu_yaw_deg_pub_->publish(yaw_deg);
+    yaw_deg.data = static_cast<float>(o.yaw / DEG);
+    odom_yaw_deg_pub_->publish(yaw_deg);
   }
 
   // ④ Serial TX ----------------------------------------------------------
@@ -269,6 +280,8 @@ private:
   rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_pub_;
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr js_pub_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
+  rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr imu_yaw_deg_pub_;
+  rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr odom_yaw_deg_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
 
   // 기록

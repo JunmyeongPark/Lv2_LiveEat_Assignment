@@ -1,4 +1,4 @@
-// Serial RX/TX: IMU · 관절 상태 수신 → /imu, /joint_states 발행 / 명령 송신 (0 포함 heartbeat)
+// Serial RX/TX: IMU · 관절 상태 수신 → control_master 가 /control/imu, /control/joint_states 발행 / 명령 송신 (0 포함 heartbeat)
 //   여기서는 USB 시리얼 열기 + 패킷 만들기/풀기만 한다. 토픽 발행은 control_master 가 함.
 //
 // [패킷]  OpenCR 펌웨어(serial_protocol)와 똑같이 맞출 것. 리틀 엔디언, float = 4바이트

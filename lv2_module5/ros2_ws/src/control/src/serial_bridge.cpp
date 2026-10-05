@@ -1,4 +1,4 @@
-// Serial RX/TX: IMU · 관절 상태 수신 → /imu, /joint_states 발행 / 명령 송신 (0 포함 heartbeat)
+// Serial RX/TX: IMU · 관절 상태 수신 → control_master 가 /control/imu, /control/joint_states 발행 / 명령 송신 (0 포함 heartbeat)
 #include "control/serial_bridge.hpp"
 
 #include <fcntl.h>
