@@ -1,6 +1,6 @@
 """health_monitor.py — 인지·제어 health 4개 구독 → 종합 판정 (이슈 #6, FDIR의 Recovery)
 
-판정 우선순위: motor_fault > camera_stale > imu_fallback > ok
+판정 우선순위: mcu_fault > motor_fault > camera_stale > imu_fallback > ok
 - 센서가 "비정상"이 되는 경우 두 가지
     (1) 받은 메시지의 level 이 ERROR(2) 또는 STALE(3)
     (2) 메시지가 아예 안 옴 (마지막 수신 후 stale_timeout_s 초 경과)
@@ -14,12 +14,13 @@ from diagnostic_msgs.msg import DiagnosticStatus
 from rclpy.qos import qos_profile_sensor_data   # best-effort: 발행자가 reliable이든 아니든 연결됨
 
 OK, WARN, ERROR, STALE = 0, 1, 2, 3             # DiagnosticStatus.level 상수 값
-SENSORS = ('camera', 'imu', 'arm_motor', 'wheel_motor')
+SENSORS = ('camera', 'imu', 'arm_motor', 'wheel_motor', 'mcu')
 DEFAULT_TOPICS = {                              # 기본값. 실제 값은 planning.yaml 에서 덮어씀
     'camera': '/perception/camera_health',
-    'imu': '/control/imu_health',               # 이슈 원문은 /control/imu_sensor → 팀장님 확인 필요
+    'imu': '/control/imu_health',               # 이슈 원문의 /control/imu_sensor 는 오타 — 팀장님 확인 완료(/control/imu_health)
     'arm_motor': '/control/arm_motor_health',
     'wheel_motor': '/control/wheel_motor_health',
+    'mcu': '/control/opencr',                   # OpenCR 보드 자체의 health (모터·IMU 를 잇는 MCU)
 }
 
 
@@ -35,7 +36,8 @@ class HealthResult:
     camera_ok: bool
     imu_ok: bool
     motor_ok: bool
-    reason: str          # 'ok' | 'imu_fallback' | 'camera_stale' | 'motor_fault'
+    mcu_ok: bool
+    reason: str          # 'ok' | 'imu_fallback' | 'camera_stale' | 'motor_fault' | 'mcu_fault'
 
     @property
     def use_encoder_heading(self):
@@ -82,7 +84,9 @@ class HealthMonitor:
         now = self._now()
         ok = {s: self._sensor_ok(s, now) for s in SENSORS}
         motor_ok = ok['arm_motor'] and ok['wheel_motor']
-        if not motor_ok:
+        if not ok['mcu']:
+            reason = 'mcu_fault'            # OpenCR 가 죽으면 모터·IMU 값도 믿을 수 없으므로 최우선
+        elif not motor_ok:
             reason = 'motor_fault'
         elif not ok['camera']:
             reason = 'camera_stale'
@@ -90,4 +94,4 @@ class HealthMonitor:
             reason = 'imu_fallback'
         else:
             reason = 'ok'
-        return HealthResult(ok['camera'], ok['imu'], motor_ok, reason)
+        return HealthResult(ok['camera'], ok['imu'], motor_ok, ok['mcu'], reason)

@@ -2,6 +2,7 @@
 
 기존 상태 전이(검출/타임아웃, planning_master.update_state)는 그대로 두고,
 그 뒤에 health 규칙을 덧씌운다.
+  mcu_fault    : 모든 상태 → 'lost'  (정지)
   motor_fault  : 모든 상태 → 'lost'  (정지)
   camera_stale : tracking/searching → 'lost'  (정지)
   imu_fallback : 상태 유지 (정지하지 않음). 사유만 기록. 엔코더 heading 전환은 TODO(선택 기능)
@@ -46,7 +47,7 @@ class HealthGate:
         self.health = h
         new_state, reason = state, h.reason
 
-        if h.reason == 'motor_fault':
+        if h.reason in ('mcu_fault', 'motor_fault'):
             new_state = 'lost'
         elif h.reason == 'camera_stale' and state in ('tracking', 'searching'):
             new_state = 'lost'
