@@ -1,1 +1,17 @@
 # 주기·FOV·목표 거리·게인·관절 한계·타임아웃
+
+# --- 이슈 #6: sensor health (health_monitor / state_machine) ---
+planning_master:
+  ros__parameters:
+    status_topic: /tracking_status       # 전이 사유를 기록하는 토픽
+    # odom_topic: /odom                  # TODO(이슈 #6): IMU fallback 용 엔코더 odometry. 토픽·타입 확정 후 활성화
+    health:
+      enabled: true                      # false: health 반영 끔 (다른 팀원 발행이 아직 없을 때)
+      topics:
+        camera: /perception/camera_health
+        imu: /control/imu_health          # TODO: 이슈 원문은 /control/imu_sensor → 팀장님 확인
+        arm_motor: /control/arm_motor_health
+        wheel_motor: /control/wheel_motor_health
+      stale_timeout_s: 0.5               # 마지막 수신 후 이 시간(초) 지나면 STALE (입력 타임아웃 0.5s 규약과 동일)
+      recover_ok_count: 3                # OK 메시지 N회 연속이어야 정상 복귀 (TRACKING 복귀 3회 규칙과 동일)
+      warn_is_ok: true                   # level=WARN(1) 을 정상으로 볼지
