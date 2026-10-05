@@ -29,6 +29,9 @@ class ArmCommand
 public:
   explicit ArmCommand(const ArmParams & p);
 
+  // timeout 시 측정 자세를 한 번 고정하고, 이후 재개도 이 자세에서 시작한다.
+  ArmAngles hold(const ArmAngles & current);
+
   // goal: Planning 목표 (아직 없으면 nullopt), current: 실제 관절 각도 → 이번 주기 명령
   ArmAngles step(const std::optional<ArmAngles> & goal, const ArmAngles & current, double dt);
 

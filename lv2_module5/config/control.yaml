@@ -6,6 +6,7 @@ control_master:
     port: /dev/ttyACM0
     baud: 1000000
     cmd_timeout_s: 0.3        # 이 시간 동안 /cmd_vel 없으면 바퀴 정지
+    arm_cmd_timeout_s: 0.3    # 팔 목표 수신 중단 시 이전 목표 취소, 측정 자세 유지
     motor_enable: true        # false: 상태는 받고 모터에는 정지만 보냄 (bag 재생 · 연결 시험)
     log_dir: results/logs     # "" 이면 CSV 기록 안 함
 

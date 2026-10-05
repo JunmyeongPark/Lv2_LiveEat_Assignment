@@ -11,6 +11,14 @@ static double clamp(double x, double lo, double hi) { return std::max(lo, std::m
 ArmCommand::ArmCommand(const ArmParams & p)
 : p_(p) {}
 
+ArmAngles ArmCommand::hold(const ArmAngles & current)
+{
+  cmd_ = ArmAngles{
+    clamp(current.yaw, -p_.yaw_limit, p_.yaw_limit),
+    clamp(current.pitch, p_.pitch_min, p_.pitch_max)};
+  return *cmd_;
+}
+
 ArmAngles ArmCommand::step(
   const std::optional<ArmAngles> & goal, const ArmAngles & current, double dt)
 {
