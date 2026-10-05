@@ -6,6 +6,7 @@
 // [출력 토픽]
 //   (planning_master 로)
 //   /control/imu      sensor_msgs/Imu          IMU 원본: yaw (±π, 쿼터니언), 각속도 z
+//                     (펌웨어 IMU 보정 전·실패 시 NaN → 미발행, imu_yaw_deg 도 같음)
 //   /control/odom     nav_msgs/Odometry        엔코더 기반: v [m/s], ω [rad/s], yaw (±π, 쿼터니언, 시작 0)
 //                                              yaw 형식은 /control/imu 와 같게 맞춤
 //                     (IMU · 엔코더 중 어느 yaw 를 쓸지는 판단부에서 정함)
@@ -235,13 +236,20 @@ private:
     state_t_ = now();
     const auto stamp = now();
 
-    sensor_msgs::msg::Imu imu;
-    imu.header.stamp = stamp;
-    imu.header.frame_id = "imu_link";
-    imu.orientation.z = std::sin(st->imu_yaw / 2.0);    // yaw 만 있는 쿼터니언
-    imu.orientation.w = std::cos(st->imu_yaw / 2.0);
-    imu.angular_velocity.z = st->imu_gyro_z;
-    imu_pub_->publish(imu);
+    // IMU: 펌웨어가 보정 전/실패 시 NaN 을 보낸다. 그때는 발행하지 않아 planning 이 엔코더 heading 을 쓰게 한다.
+    const bool imu_valid = std::isfinite(st->imu_yaw) && std::isfinite(st->imu_gyro_z);
+    if (imu_valid) {
+      sensor_msgs::msg::Imu imu;
+      imu.header.stamp = stamp;
+      imu.header.frame_id = "imu_link";
+      imu.orientation.z = std::sin(st->imu_yaw / 2.0);    // yaw 만 있는 쿼터니언
+      imu.orientation.w = std::cos(st->imu_yaw / 2.0);
+      imu.angular_velocity.z = st->imu_gyro_z;
+      imu_pub_->publish(imu);
+      std_msgs::msg::Float32 imu_deg;
+      imu_deg.data = static_cast<float>(st->imu_yaw / DEG);
+      imu_yaw_deg_pub_->publish(imu_deg);
+    }
 
     sensor_msgs::msg::JointState js;
     js.header.stamp = stamp;
@@ -269,10 +277,8 @@ private:
     odom.pose.pose.orientation.w = std::cos(o.yaw / 2.0);
     odom_pub_->publish(odom);
 
-    // 같은 yaw 를 deg 숫자 하나로도 보냄 (rad → deg: ÷ DEG = × 180/π)
+    // 엔코더 yaw 를 deg 숫자 하나로도 보냄 (rad → deg: ÷ DEG = × 180/π)
     std_msgs::msg::Float32 yaw_deg;
-    yaw_deg.data = static_cast<float>(st->imu_yaw / DEG);
-    imu_yaw_deg_pub_->publish(yaw_deg);
     yaw_deg.data = static_cast<float>(o.yaw / DEG);
     odom_yaw_deg_pub_->publish(yaw_deg);
   }
