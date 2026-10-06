@@ -51,20 +51,13 @@ MIN_DEPTH = 0.2
 MAX_DEPTH = 3.0
 MIN_VALID_RATIO = 0.5
 
-# 깊이 형상 검사: 기준 깊이(bbox 최빈값) ±tol 픽셀이 bbox 주위에 얼마나 없는지(empty)
-# F 키로 bbox 안쪽이 얼마나 차 있는지(fill)를 점수에 곱할지 전환
-# 퍽이 사각지대에 들어오면 align 시 뒤 배경 깊이가 bbox 안을 채움 → 같은 깊이가 주위까지 퍼져 empty가 낮아짐
-SHAPE_X_RATIO = 0.25    # bbox 중심이 화면 왼쪽 이 비율 안에 있고
-SHAPE_EDGE_PX = 2       # bbox 외곽이 화면 끝(상하좌우)에서 이 px 안에 하나라도 붙어 있을 때만 검사
-SHAPE_BIN = 0.02        # [m] 기준 깊이(bbox 깊이 최빈값) 히스토그램 구간 폭
-SHAPE_MARGIN_PX = 150   # [px] bbox를 각 방향으로 이만큼 넓혀 주위 영역으로 봄
-SHAPE_TOL = 0.02        # [m] 기준 깊이 ± 허용오차 초기값 (실행 중 1~9 키로 1~9 cm 변경)
-SHAPE_MIN_SCORE = 0.5   # score = empty 또는 fill x empty (0~1). 이보다 낮으면 depth 거부 (0 처리)
+# 퍽이 너무 가까우면 depth 사각지대(왼쪽 무효 띠)에 걸려 align 시 뒤 배경 깊이가 bbox를 채움
+# → bbox가 화면 왼쪽 끝에 닿으면 depth를 믿지 않고 0 처리
+LEFT_EDGE_PX = 2        # bbox 왼쪽 x1이 이 px 이하면 화면 왼쪽 끝에 닿은 것으로 봄
 
 WINDOW_NAME = "Puck Detection"
 MASK_WINDOW_NAME = "Blue Mask"
 ROI_WINDOW_NAME = "ROI Depth"
-SHAPE_WINDOW_NAME = "Depth Shape"
 
 # ROI 깊이 창 크기
 ROI_VIEW_SIZE = 400
@@ -118,8 +111,6 @@ detection_enabled = True
 use_yolo = True  # M 키: YOLO <-> HSV 전환
 imgsz_index = 0  # I 키: YOLO_IMGSZ 전환
 model_name = args.model  # V 키: MODELS 전환
-shape_tol = SHAPE_TOL  # 1~9 키: 형상 검사 허용오차 1~9 cm
-shape_use_fill = False  # F 키: 형상 점수 empty <-> fill x empty
 
 # 모델·입력 크기별 YOLO 통계 (종료 시 출력)
 yolo_stats = {(m, s): {"ms": [], "frames": 0, "conf": []} for m in MODELS for s in YOLO_IMGSZ}
@@ -339,93 +330,6 @@ def colorize_depth(depth_m):
     return colored
 
 
-def full_depth_view(depth_frame, message):
-    """Depth Shape 창 기본 화면 (검사 안 함): 전체 depth 맵 + 사유"""
-    depth_m = np.asanyarray(depth_frame.get_data()) * depth_frame.get_units()
-    view = colorize_depth(depth_m)
-    cv2.rectangle(view, (5, 10), (WIDTH - 5, 37), (0, 0, 0), -1)
-    cv2.putText(view, message, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1)
-    return view
-
-
-def touches_edge(box):
-    """bbox 외곽이 화면 끝(상하좌우) 중 하나라도 SHAPE_EDGE_PX 안에 붙어 있는지"""
-    x1, y1, x2, y2 = box
-    return (x1 <= SHAPE_EDGE_PX or y1 <= SHAPE_EDGE_PX
-            or x2 >= WIDTH - 1 - SHAPE_EDGE_PX or y2 >= HEIGHT - 1 - SHAPE_EDGE_PX)
-
-
-def check_depth_shape(depth_frame, box, tol, use_fill):
-    """bbox 깊이 최빈값 ±tol 픽셀로 형상 점수 계산 -> (score, view)
-    fill  = bbox 안 ±tol 픽셀 비율 (차 있을수록 1)
-    empty = bbox 주위(각 방향 SHAPE_MARGIN_PX, 화면 밖 제외) ±tol 아닌 픽셀 비율 (비어 있을수록 1)
-    score = fill x empty (use_fill) 또는 empty (bbox 안쪽은 기준 깊이 구할 때만 씀). 기준 깊이를 못 구하면 score 0
-    view: 탐색 영역 밖은 depth 컬러맵. 영역 안은 주위의 ±tol 픽셀(빨강), 나머지(흰색 50% + 컬러맵 50%), bbox(노랑), 주위 영역(회색).
-          bbox 안쪽은 use_fill이면 ±tol 픽셀 초록·나머지 흰색 50%, 아니면 depth 컬러맵 그대로"""
-
-    x1, y1, x2, y2 = box
-
-    # 주위 영역: bbox를 SHAPE_MARGIN_PX만큼 넓힘 (배경이면 같은 깊이가 이 영역까지 퍼짐)
-    sx1 = max(0, x1 - SHAPE_MARGIN_PX)
-    sy1 = max(0, y1 - SHAPE_MARGIN_PX)
-    sx2 = min(WIDTH, x2 + SHAPE_MARGIN_PX)
-    sy2 = min(HEIGHT, y2 + SHAPE_MARGIN_PX)
-
-    depth_image = np.asanyarray(depth_frame.get_data())
-    region = depth_image[sy1:sy2, sx1:sx2] * depth_frame.get_units()
-
-    # 기준 깊이: YOLO bbox 전체 유효 깊이의 최빈값 (SHAPE_BIN 구간 히스토그램에서 가장 많은 구간의 중앙값)
-    # 평균은 퍽·배경이 섞이면 둘 사이 값이 되어 어느 쪽에도 안 걸림
-    box_depth = region[y1 - sy1:y2 - sy1, x1 - sx1:x2 - sx1]
-    box_valid = box_depth[(box_depth >= MIN_DEPTH) & (box_depth <= MAX_DEPTH)]
-    if box_valid.size == 0:
-        return 0.0, full_depth_view(depth_frame, "No valid depth in bbox")
-    bins = ((box_valid - MIN_DEPTH) / SHAPE_BIN).astype(np.int32)
-    mode_bin = int(np.argmax(np.bincount(bins)))
-    depth = float(np.median(box_valid[bins == mode_bin]))
-
-    mask = np.abs(region - depth) <= tol
-
-    # bbox 안 / 주위 구분
-    inside = np.zeros(mask.shape, dtype=bool)
-    inside[y1 - sy1:y2 - sy1, x1 - sx1:x2 - sx1] = True
-
-    ring_area = (~inside).sum()
-    # 주위 영역이 없으면(bbox가 화면 전체) 퍼짐을 판단할 근거가 없으므로 비어 있다고 봄
-    empty = float(1.0 - mask[~inside].sum() / ring_area) if ring_area > 0 else 1.0
-    fill = float(mask[inside].sum() / inside.sum())
-    score = fill * empty if use_fill else empty
-
-    # 시각화: 탐색 영역 밖은 depth 컬러맵 그대로
-    # 탐색 영역 안: 주위의 ±tol 픽셀은 빨강, 나머지는 흰색 50% + depth 컬러맵 50%
-    # bbox 안쪽: fill을 쓰면 ±tol 픽셀 초록·나머지 흰색 50%, 안 쓰면 depth 컬러맵 그대로
-    view = colorize_depth(depth_image * depth_frame.get_units())
-    sub = view[sy1:sy2, sx1:sx2]
-    faded = ((sub.astype(np.uint16) + 255) // 2).astype(np.uint8)
-    blend = ~inside | use_fill
-    sub[blend] = faded[blend]
-    sub[mask & ~inside] = (0, 0, 255)
-    if use_fill:
-        sub[mask & inside] = (0, 255, 0)
-    cv2.rectangle(view, (sx1, sy1), (sx2 - 1, sy2 - 1), (128, 128, 128), 1)
-    cv2.rectangle(view, (x1, y1), (x2, y2), (0, 255, 255), 2)
-
-    lines = [
-        (f"bbox mode {depth:.3f} m +- {tol * 100:.1f} cm", (255, 255, 255)),
-        ((f"fill {fill:.2f} x empty {empty:.2f} = {score:.2f}" if use_fill else f"empty {score:.2f}")
-         + f" (min {SHAPE_MIN_SCORE}) [F]",
-         (0, 255, 0) if score >= SHAPE_MIN_SCORE else (0, 0, 255)),
-        (f"bbox valid {box_valid.size}/{box_depth.size} px, "
-         f"range {box_valid.min():.2f}~{box_valid.max():.2f} m", (255, 255, 255)),
-    ]
-    # 글자가 초록·빨강 픽셀 위에서도 보이도록 검은 배경
-    cv2.rectangle(view, (5, 10), (WIDTH - 5, 15 + 22 * len(lines)), (0, 0, 0), -1)
-    for i, (line, color) in enumerate(lines):
-        cv2.putText(view, line, (10, 28 + 22 * i), cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 1)
-
-    return score, view
-
-
 def make_roi_view(roi):
     """ROI 깊이를 픽셀별 색으로 표시 (유효 범위: 가까움=빨강 ~ 멀리=파랑)"""
 
@@ -511,12 +415,10 @@ def make_roi_view(roi):
 cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
 cv2.namedWindow(MASK_WINDOW_NAME, cv2.WINDOW_NORMAL)
 cv2.namedWindow(ROI_WINDOW_NAME, cv2.WINDOW_NORMAL)
-cv2.namedWindow(SHAPE_WINDOW_NAME, cv2.WINDOW_NORMAL)
 
 # ROI 깊이 창을 메인 창 오른쪽에 배치
 cv2.moveWindow(WINDOW_NAME, 0, 0)
 cv2.moveWindow(ROI_WINDOW_NAME, WIDTH + 20, 0)
-cv2.moveWindow(SHAPE_WINDOW_NAME, 0, HEIGHT + 60)
 
 
 try:
@@ -547,8 +449,6 @@ try:
         )
 
         roi_depth = None
-        snap_box = None
-        shape_view = full_depth_view(depth_frame, "No target")
 
         # =========================
         # 객체 검출 ON
@@ -567,7 +467,6 @@ try:
             if box is not None:
 
                 x1, y1, x2, y2 = box
-                snap_box = box
 
                 w = x2 - x1
                 h = y2 - y1
@@ -583,23 +482,10 @@ try:
                     y2
                 )
 
-                # 깊이 형상 검사: bbox 안은 차 있고 주위는 비어 있어야 함. 아니면 배경 깊이로 보고 거부
-                shape_score = None
-                if cx >= WIDTH * SHAPE_X_RATIO:
-                    shape_view = full_depth_view(
-                        depth_frame,
-                        f"Center x {cx} >= {WIDTH * SHAPE_X_RATIO:.0f} (shape check skipped)"
-                    )
-                elif not touches_edge(box):
-                    shape_view = full_depth_view(depth_frame, "bbox not touching image edge (shape check skipped)")
-                elif depth > 0:
-                    shape_score, shape_view = check_depth_shape(
-                        depth_frame, box, shape_tol, shape_use_fill
-                    )
-                    if shape_score < SHAPE_MIN_SCORE:
-                        depth = 0.0
-                else:
-                    shape_view = full_depth_view(depth_frame, "No valid depth (shape check skipped)")
+                # 화면 왼쪽 끝에 닿으면 depth 사각지대로 보고 0 처리
+                left_edge = x1 <= LEFT_EDGE_PX
+                if left_edge:
+                    depth = 0.0
 
                 # Bounding Box
                 cv2.rectangle(
@@ -631,8 +517,8 @@ try:
 
                 if depth > 0:
                     text = f"Depth: {depth:.3f} m"
-                elif shape_score is not None:
-                    text = f"Depth: 0 (shape score {shape_score:.2f} < {SHAPE_MIN_SCORE})"
+                elif left_edge:
+                    text = "Depth: 0 (touching left edge)"
                 else:
                     text = f"Depth: 0 (invalid, {MIN_DEPTH:.1f}~{MAX_DEPTH:.1f} m)"
 
@@ -687,14 +573,6 @@ try:
                         "Raw median: "
                         + (f"{raw_median:.3f} m" if raw_median is not None else "N/A"),
                     ]
-
-                if shape_score is not None:
-                    debug_lines.append(
-                        f"Shape {'fill x empty' if shape_use_fill else 'empty'}: "
-                        f"{shape_score:.2f} (min {SHAPE_MIN_SCORE})"
-                    )
-                    if conf is not None:
-                        debug_lines.append(f"Conf x Score: {conf * shape_score:.2f}")
 
                 # 우측 상단 정보 패널
                 panel_x = WIDTH - 230
@@ -765,7 +643,7 @@ try:
 
         cv2.putText(
             display_frame,
-            "D: Detection | M: YOLO/HSV | V: v1/v2 | I: YOLO size | R: Record | S: Snap | F: Fill | 1~9: Tol cm | Q: Quit",
+            "D: Detection | M: YOLO/HSV | V: v1/v2 | I: YOLO size | R: Record | Q: Quit",
             (10, HEIGHT - 15),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.45,
@@ -808,11 +686,6 @@ try:
             make_roi_view(roi_depth)
         )
 
-        cv2.imshow(
-            SHAPE_WINDOW_NAME,
-            shape_view
-        )
-
         key = cv2.waitKey(1) & 0xFF
 
 
@@ -831,29 +704,6 @@ try:
                 start_recording()
             else:
                 stop_recording()
-
-        elif key == ord("s"):
-
-            # 분석용 스냅샷: 원본 color + align된 depth(raw z16) + bbox
-            snap_name = f"snap_{datetime.now().strftime('%Y%m%d_%H%M%S')}.npz"
-            np.savez_compressed(
-                snap_name,
-                color=raw_frame,
-                depth=np.asanyarray(depth_frame.get_data()),
-                depth_units=depth_frame.get_units(),
-                box=np.array(snap_box if snap_box is not None else [], dtype=np.int32),
-            )
-            print(f"[SNAP] {snap_name} box={snap_box}")
-
-        elif ord("1") <= key <= ord("9"):
-
-            shape_tol = (key - ord("0")) / 100
-            print(f"[SHAPE TOL] +-{shape_tol * 100:.0f} cm")
-
-        elif key == ord("f"):
-
-            shape_use_fill = not shape_use_fill
-            print("[SHAPE SCORE]", "fill x empty" if shape_use_fill else "empty")
 
         elif key == ord("m"):
 

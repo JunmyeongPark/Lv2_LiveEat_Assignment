@@ -18,6 +18,7 @@ data/labels/*/
 *.webm
 *.jpg
 *.png
+*.npz
 
 # 모델 가중치: 기본은 제외, 아래에서 필요한 .pt만 예외로 포함
 *.pt
