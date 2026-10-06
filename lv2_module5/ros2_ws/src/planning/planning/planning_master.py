@@ -148,6 +148,7 @@ class PlanningMaster(Node):
         self.cur_arm_pose = self.nominal_pose.copy()  # 초기값, motor_cb에서 실제 절대각 수신
         self.cur_arm_pose_valid = False
         self.joint_stale = True  # 관절 피드백 침묵 여부 (check_timeouts에서 갱신)
+        self.control_silent = False  # IMU·odom·관절 동시 침묵 (OpenCR 또는 control_master 단절)
         self.cur_object_xyz = None  # 로봇 기준 (x 전방, y 좌측, z 위쪽), m
         self.cur_object_planar_dis = None  # 로봇 기준 수평 거리, m
         self.cur_object_yaw_deg = None  # 로봇 전방 기준 방위각, 반시계+
@@ -328,7 +329,7 @@ class PlanningMaster(Node):
 
         # IMU·odom·관절 피드백은 OpenCR 시리얼 패킷 하나로 함께 온다.
         # 셋이 동시에 끊기면 진단이 꺼져 있어도 OpenCR(또는 control_master) 단절로 본다.
-        control_silent = self.imu_stale and self.odom_stale and self.joint_rx_stale
+        self.control_silent = control_silent = self.imu_stale and self.odom_stale and self.joint_rx_stale
         if h is not None and h.blocking:
             reason = h.reason                          # mcu/arm_motor/wheel_motor/camera _diag_*
         elif control_silent:
@@ -654,6 +655,8 @@ class PlanningMaster(Node):
 
     def _status_text(self):
         flags = []
+        if self.control_silent:
+            flags.append('CONTROL_TIMEOUT')
         if self.detection_stale:
             flags.append('DETECTION_TIMEOUT')
         if not self.cur_arm_pose_valid:
