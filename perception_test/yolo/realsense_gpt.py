@@ -31,6 +31,11 @@ WIDTH = 640
 HEIGHT = 480
 FPS = 30
 
+# depth 해상도: 낮을수록 최소 측정 거리(min-Z)가 짧아짐 (640x480 ≈ 17~20 cm → 424x240 ≈ 10 cm)
+# rs.align(color)가 color 해상도(WIDTH x HEIGHT)로 맞춰 주므로 ROI 계산은 그대로
+DEPTH_WIDTH = 640
+DEPTH_HEIGHT = 480
+
 LOWER_BLUE = np.array([90, 80, 50])
 UPPER_BLUE = np.array([130, 255, 255])
 
@@ -46,9 +51,17 @@ MIN_DEPTH = 0.2
 MAX_DEPTH = 3.0
 MIN_VALID_RATIO = 0.5
 
+# 깊이 형상 검사: 측정 깊이 ±tol 픽셀 덩어리의 외곽 사각형이 bbox와 닮았는지 (IoU)
+# 퍽이 사각지대에 들어오면 align 시 뒤 배경 깊이가 bbox 안을 채움 → 덩어리가 bbox보다 훨씬 커져 IoU가 낮아짐
+SHAPE_X_RATIO = 0.25    # bbox 중심이 화면 왼쪽 이 비율 안에 있을 때만 검사 (나머지는 검사 안 함)
+SHAPE_MARGIN = 1.0      # bbox를 각 방향으로 bbox 크기의 이 비율만큼 넓혀 탐색
+SHAPE_TOL = 0.05        # [m] 측정 깊이 ± 허용오차
+SHAPE_MIN_IOU = 0.5     # 이보다 낮으면 depth 거부 (0 처리)
+
 WINDOW_NAME = "Puck Detection"
 MASK_WINDOW_NAME = "Blue Mask"
 ROI_WINDOW_NAME = "ROI Depth"
+SHAPE_WINDOW_NAME = "Depth Shape"
 
 # ROI 깊이 창 크기
 ROI_VIEW_SIZE = 400
@@ -74,8 +87,8 @@ config = rs.config()
 
 config.enable_stream(
     rs.stream.depth,
-    WIDTH,
-    HEIGHT,
+    DEPTH_WIDTH,
+    DEPTH_HEIGHT,
     rs.format.z16,
     FPS
 )
@@ -309,6 +322,86 @@ def get_median_depth(depth_frame, x1, y1, x2, y2):
     return float(np.median(valid)), stats
 
 
+def empty_shape_view(message):
+    """Depth Shape 창 기본 화면 (검사 안 함)"""
+    view = np.full((HEIGHT, WIDTH, 3), 40, dtype=np.uint8)
+    cv2.putText(view, message, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+    return view
+
+
+def check_depth_shape(depth_frame, box, depth, roi):
+    """측정 깊이 ±tol 덩어리의 외곽 사각형과 bbox의 IoU -> (iou, contours, view). 덩어리 없으면 iou 0.0, contours None
+    view: ±tol 픽셀(흰색), 선택된 덩어리(초록), bbox(노랑), 덩어리 사각형(마젠타)"""
+
+    x1, y1, x2, y2 = box
+    bw, bh = x2 - x1, y2 - y1
+
+    # 탐색 영역: bbox를 SHAPE_MARGIN만큼 넓힘 (배경이면 덩어리가 이 영역 끝까지 퍼짐)
+    sx1 = max(0, int(x1 - bw * SHAPE_MARGIN))
+    sy1 = max(0, int(y1 - bh * SHAPE_MARGIN))
+    sx2 = min(WIDTH, int(x2 + bw * SHAPE_MARGIN))
+    sy2 = min(HEIGHT, int(y2 + bh * SHAPE_MARGIN))
+
+    depth_image = np.asanyarray(depth_frame.get_data())
+    region = depth_image[sy1:sy2, sx1:sx2] * depth_frame.get_units()
+
+    tol = SHAPE_TOL
+    mask = (np.abs(region - depth) <= tol).astype(np.uint8)
+
+    # 1~2 px 노이즈 제거
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+
+    # 시각화: 탐색 영역 밖은 어두운 회색, ±tol 픽셀은 흰색
+    view = np.full((HEIGHT, WIDTH, 3), 40, dtype=np.uint8)
+    view[sy1:sy2, sx1:sx2] = 0
+    view[sy1:sy2, sx1:sx2][mask > 0] = (255, 255, 255)
+    cv2.rectangle(view, (sx1, sy1), (sx2 - 1, sy2 - 1), (128, 128, 128), 1)
+    cv2.rectangle(view, (x1, y1), (x2, y2), (0, 255, 255), 2)
+    cv2.putText(view, f"{depth:.3f} m +- {tol * 100:.1f} cm", (10, 30),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+
+    n, labels = cv2.connectedComponents(mask, connectivity=8)
+    if n <= 1:
+        return 0.0, None, view
+
+    # 깊이 ROI와 가장 많이 겹치는 덩어리 = 깊이값을 만든 덩어리
+    rx1, ry1, rx2, ry2 = roi
+    roi_labels = labels[ry1 - sy1:ry2 - sy1, rx1 - sx1:rx2 - sx1]
+    counts = np.bincount(roi_labels.ravel(), minlength=n)
+    counts[0] = 0
+    label = int(np.argmax(counts))
+    if counts[label] == 0:
+        return 0.0, None, view
+
+    blob_mask = (labels == label).astype(np.uint8)
+    view[sy1:sy2, sx1:sx2][blob_mask > 0] = (0, 255, 0)
+    cv2.rectangle(view, (x1, y1), (x2, y2), (0, 255, 255), 2)
+
+    bx, by, bw2, bh2 = cv2.boundingRect(blob_mask)
+    blob = (sx1 + bx, sy1 + by, sx1 + bx + bw2, sy1 + by + bh2)
+
+    # IoU (bbox vs 덩어리 외곽 사각형)
+    ix = max(0, min(x2, blob[2]) - max(x1, blob[0]))
+    iy = max(0, min(y2, blob[3]) - max(y1, blob[1]))
+    inter = ix * iy
+    union = bw * bh + bw2 * bh2 - inter
+    iou = inter / union if union > 0 else 0.0
+
+    contours, _ = cv2.findContours(
+        blob_mask,
+        cv2.RETR_EXTERNAL,
+        cv2.CHAIN_APPROX_SIMPLE,
+        offset=(sx1, sy1)
+    )
+
+    cv2.rectangle(view, blob[:2], (blob[2] - 1, blob[3] - 1), (255, 0, 255), 1)
+    cv2.putText(view, f"IoU {iou:.2f} (min {SHAPE_MIN_IOU})", (10, 55),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                (0, 255, 0) if iou >= SHAPE_MIN_IOU else (0, 0, 255), 1)
+
+    return iou, contours, view
+
+
 def make_roi_view(roi):
     """ROI 깊이를 픽셀별 색으로 표시 (유효 범위: 가까움=빨강 ~ 멀리=파랑)"""
 
@@ -405,10 +498,12 @@ def make_roi_view(roi):
 cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
 cv2.namedWindow(MASK_WINDOW_NAME, cv2.WINDOW_NORMAL)
 cv2.namedWindow(ROI_WINDOW_NAME, cv2.WINDOW_NORMAL)
+cv2.namedWindow(SHAPE_WINDOW_NAME, cv2.WINDOW_NORMAL)
 
 # ROI 깊이 창을 메인 창 오른쪽에 배치
 cv2.moveWindow(WINDOW_NAME, 0, 0)
 cv2.moveWindow(ROI_WINDOW_NAME, WIDTH + 20, 0)
+cv2.moveWindow(SHAPE_WINDOW_NAME, 0, HEIGHT + 60)
 
 
 try:
@@ -439,6 +534,7 @@ try:
         )
 
         roi_depth = None
+        shape_view = empty_shape_view("No target")
 
         # =========================
         # 객체 검출 ON
@@ -472,6 +568,25 @@ try:
                     y2
                 )
 
+                # 깊이 형상 검사: 덩어리가 bbox와 안 닮았으면 배경 깊이로 보고 거부
+                shape_iou, blob_contours = None, None
+                if cx >= WIDTH * SHAPE_X_RATIO:
+                    shape_view = empty_shape_view(
+                        f"Center x {cx} >= {WIDTH * SHAPE_X_RATIO:.0f} (shape check skipped)"
+                    )
+                elif depth > 0:
+                    shape_iou, blob_contours, shape_view = check_depth_shape(
+                        depth_frame, box, depth, stats["roi"]
+                    )
+                    if shape_iou < SHAPE_MIN_IOU:
+                        depth = 0.0
+                else:
+                    shape_view = empty_shape_view("No valid depth (shape check skipped)")
+
+                # 깊이 덩어리 (마젠타)
+                if blob_contours is not None:
+                    cv2.drawContours(display_frame, blob_contours, -1, (255, 0, 255), 1)
+
                 # Bounding Box
                 cv2.rectangle(
                     display_frame,
@@ -500,17 +615,10 @@ try:
                     -1
                 )
 
-                # 화면 중앙선
-                cv2.line(
-                    display_frame,
-                    (WIDTH // 2, 0),
-                    (WIDTH // 2, HEIGHT),
-                    (0, 255, 255),
-                    1
-                )
-
                 if depth > 0:
                     text = f"Depth: {depth:.3f} m"
+                elif shape_iou is not None:
+                    text = f"Depth: 0 (shape IoU {shape_iou:.2f} < {SHAPE_MIN_IOU})"
                 else:
                     text = f"Depth: 0 (invalid, {MIN_DEPTH:.1f}~{MAX_DEPTH:.1f} m)"
 
@@ -565,6 +673,11 @@ try:
                         "Raw median: "
                         + (f"{raw_median:.3f} m" if raw_median is not None else "N/A"),
                     ]
+
+                if shape_iou is not None:
+                    debug_lines.append(f"Shape IoU: {shape_iou:.2f} (min {SHAPE_MIN_IOU})")
+                    if conf is not None:
+                        debug_lines.append(f"Conf x IoU: {conf * shape_iou:.2f}")
 
                 # 우측 상단 정보 패널
                 panel_x = WIDTH - 230
@@ -676,6 +789,11 @@ try:
         cv2.imshow(
             ROI_WINDOW_NAME,
             make_roi_view(roi_depth)
+        )
+
+        cv2.imshow(
+            SHAPE_WINDOW_NAME,
+            shape_view
         )
 
         key = cv2.waitKey(1) & 0xFF
