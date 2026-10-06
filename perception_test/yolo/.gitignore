@@ -25,7 +25,8 @@ data/labels/*/
 
 # 실행·테스트에 필요한 모델은 공유 (다른 노트북 / 라즈베리파이)
 #   models/yolo26n.pt -> 재학습용 사전학습 모델
-#   runs/target_blue/ (v1), runs/target_blue_v2/ (v2), runs/target_blue_v3/ (v3) 의 weights만:
+#   runs/target_blue/ (v1), runs/target_blue_v2/ (v2), runs/target_blue_v3/ (v3),
+#   runs/target_blue_v3_imgsz{320,256,160}/ (v3를 그 입력 크기로 학습, realsense_gpt.py SIZE_MODELS · imgsz320은 Pi 배포 원본) 의 weights만:
 #   best.pt          -> realsense_gpt.py (--model v1|v2|v3, V 키로 전환)
 #   best_ncnn_model/ -> ROS perception 노드 (C++ NCNN, 640x640)
 #   best_ncnn_model_480x640/, best_ncnn_model_256x320/, best_*.onnx -> NCNN 640x480·320x256, ONNX 640x640·640x480·320x256 (백엔드 비교 · results/realtime_ncnn_vs_onnx.md)
@@ -34,6 +35,9 @@ data/labels/*/
 !runs/target_blue/
 !runs/target_blue_v2/
 !runs/target_blue_v3/
+!runs/target_blue_v3_imgsz320/
+!runs/target_blue_v3_imgsz256/
+!runs/target_blue_v3_imgsz160/
 runs/*/*
 !runs/*/weights/
 runs/*/weights/*

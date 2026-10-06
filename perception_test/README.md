@@ -26,8 +26,8 @@ perception_test/
 cd perception_test/yolo
 source .yolo/bin/activate
 
-python realsense_gpt.py              # v2로 시작
-python realsense_gpt.py --model v3   # v3로 시작
+python realsense_gpt.py              # v3로 시작
+python realsense_gpt.py --model v2   # v2로 시작
 ```
 
 키: `D` 검출 ON/OFF · `M` YOLO/HSV 전환 · `V` v1→v2→v3 전환 · `I` 입력 크기 · `R` 녹화 · `Q` 종료
@@ -38,6 +38,8 @@ python realsense_gpt.py --model v3   # v3로 시작
 | v1 | `runs/target_blue/weights/best.pt` | record 영상 1개 |
 | v2 | `runs/target_blue_v2/weights/best.pt` | + YOLO_DARK/EAST/ROOM2~5, 라벨 수정 (542장, `data/labels/labels_v2.zip`) |
 | v3 | `runs/target_blue_v3/weights/best.pt` | + YOLO_BLUE0(퍽처럼 생긴 방해물, 일부러 라벨 없음)/BLUE2 (628장, `data/labels/labels_v3.zip`) |
+
+모델은 모두 `imgsz=640`으로 학습했다. 단, v3로 320x256·256x192·160x128 입력을 고르면 그 크기로 학습한 모델이 자동으로 쓰인다 (`runs/target_blue_v3_imgsz320`·`imgsz256`·`imgsz160`, 화면에 `v3@320`·`v3@256`·`v3@160`으로 표시). v3@320은 Pi 배포 모델과 같은 가중치다. 설정: `realsense_gpt.py`의 `SIZE_MODELS`
 
 ## 학습
 

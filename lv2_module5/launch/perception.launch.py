@@ -2,7 +2,7 @@
 #
 #   ros2 launch lv2_module5/launch/perception.launch.py
 #   ros2 launch lv2_module5/launch/perception.launch.py camera:=false            # 카메라를 따로 띄운 경우
-#   ros2 launch lv2_module5/launch/perception.launch.py model:=v3                # 모델 선택 (v2 기본 | v1 | v3)
+#   ros2 launch lv2_module5/launch/perception.launch.py model:=v2                # 모델 선택 (v3 기본 | v1 | v2)
 #   ros2 launch lv2_module5/launch/perception.launch.py output_topic:=/target    # 판단 노드 구독 토픽에 맞출 때
 #
 # bringup.launch.py에서 IncludeLaunchDescription으로 그대로 포함하면 된다.
@@ -23,7 +23,7 @@ CONFIG_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'co
 MODELS = {
     'v1': 'target_blue_256',     # perception_test/yolo/runs/target_blue
     'v2': 'target_blue_v2_256',  # perception_test/yolo/runs/target_blue_v2
-    'v3': 'target_blue_v3_256',  # perception_test/yolo/runs/target_blue_v3
+    'v3': 'target_blue_v3_256',  # perception_test/yolo/runs/target_blue_v3_imgsz320 (입력 크기에 맞춰 320으로 학습)
 }
 
 
@@ -61,7 +61,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument('camera', default_value='true', description='RealSense 노드도 함께 실행'),
-        DeclareLaunchArgument('model', default_value='v2', choices=list(MODELS),
+        DeclareLaunchArgument('model', default_value='v3', choices=list(MODELS),
                               description='배포 모델 선택 (model_dir를 주면 무시)'),
         DeclareLaunchArgument('model_dir', default_value=default_model_dir,
                               description='model.ncnn.param / model.ncnn.bin / model.onnx 가 있는 폴더'),

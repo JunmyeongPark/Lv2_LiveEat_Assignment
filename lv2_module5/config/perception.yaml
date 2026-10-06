@@ -3,7 +3,7 @@ perception_master:
   ros__parameters:
     backend: ncnn            # ncnn | onnx
     # 모델 경로: 비워 두면 launch/perception.launch.py가 패키지에 들어 있는 배포 모델
-    #   (기본 v2: ros2_ws/src/perception/models/target_blue_v2_256 → install/share/perception/models/)로 채움
+    #   (기본 v3: ros2_ws/src/perception/models/target_blue_v3_256 → install/share/perception/models/)로 채움
     # 모델 선택: launch 인자 model:=v1|v2|v3, 또는 model_dir:=<폴더> (model.ncnn.param / model.ncnn.bin / model.onnx)
     model_param: ""
     model_bin:   ""
@@ -16,7 +16,7 @@ perception_master:
     # 배포 모델 imgsz=[256,320] (results/realtime_ncnn_vs_onnx.md 2.6절: 640x480 대비 약 3배 FPS)
     input_width: 320
     input_height: 256
-    conf_threshold: 0.25
+    conf_threshold: 0.5      # 0.25 → 0.5: v3 검증 데이터(320x256)에서 퍽 없는 프레임 오검출 5→3, 놓친 퍽 증가 없음
     num_threads: 4            # Pi4 4코어 모두 추론에 사용
                               # 단독 측정에선 3이 더 빠름 (results/realtime_ncnn_vs_onnx.md 2.6절: 6.88 vs 5.84 FPS)
                               # → 판단·제어 노드와 함께 띄운 상태에서 재측정 후 결정

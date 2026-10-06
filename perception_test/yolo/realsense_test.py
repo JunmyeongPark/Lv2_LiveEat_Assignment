@@ -18,7 +18,7 @@ MODELS = {
     "v1": Path(__file__).parent / "runs/target_blue/weights/best.pt",
     "v2": Path(__file__).parent / "runs/target_blue_v2/weights/best.pt",
 }
-YOLO_CONF = 0.25
+YOLO_CONF = 0.5
 
 # YOLO 입력 크기 (높이, 너비) — I 키로 전환. Pi4 속도 개선용 크기 비교
 # 32의 배수만 가능 (아니면 올림됨: 240 → 256). 4:3에 가까운 크기만 사용

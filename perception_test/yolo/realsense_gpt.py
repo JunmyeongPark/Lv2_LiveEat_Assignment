@@ -19,7 +19,15 @@ MODELS = {
     "v2": Path(__file__).parent / "runs/target_blue_v2/weights/best.pt",
     "v3": Path(__file__).parent / "runs/target_blue_v3/weights/best.pt",
 }
-YOLO_CONF = 0.25
+
+# 입력 크기 전용 모델: (모델, (높이, 너비)) -> 그 크기(imgsz=너비)로 학습한 가중치
+# 여기 없는 조합은 MODELS의 640 학습 모델을 그대로 사용
+SIZE_MODELS = {
+    ("v3", (256, 320)): Path(__file__).parent / "runs/target_blue_v3_imgsz320/weights/best.pt",  # Pi 배포 모델과 같은 가중치
+    ("v3", (192, 256)): Path(__file__).parent / "runs/target_blue_v3_imgsz256/weights/best.pt",
+    ("v3", (128, 160)): Path(__file__).parent / "runs/target_blue_v3_imgsz160/weights/best.pt",
+}
+YOLO_CONF = 0.5
 
 # YOLO 입력 크기 (높이, 너비) — I 키로 전환. Pi4 속도 개선용 크기 비교
 # 32의 배수만 가능 (아니면 올림됨: 240 → 256). 4:3에 가까운 크기만 사용
@@ -71,8 +79,13 @@ COLOR_TOO_FAR = (128, 128, 128) # MAX_DEPTH 초과
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--model", choices=list(MODELS), default="v2", help="시작 모델 (실행 중 V 키로 전환)")
+parser.add_argument("--model", choices=list(MODELS), default="v3", help="시작 모델 (실행 중 V 키로 전환)")
+parser.add_argument("--no-align", action="store_true",
+                    help="depth 전체 정렬(rs.align) 끄고 시작 — bbox 중심만 depth 좌표로 투영 (실행 중 A 키로 전환)")
+parser.add_argument("--fps", type=int, choices=[6, 15, 30], default=FPS,
+                    help="카메라 FPS (Pi ROS 설정은 15). 추론이 느리면 처리 FPS는 같고 지연만 달라짐")
 args = parser.parse_args()
+FPS = args.fps
 
 
 # =========================
@@ -98,9 +111,18 @@ config.enable_stream(
     FPS
 )
 
-pipeline.start(config)
+profile = pipeline.start(config)
 
 align = rs.align(rs.stream.color)
+
+# align 끔 모드: color 픽셀 → depth 픽셀 투영에 쓰는 카메라 보정값
+depth_profile = profile.get_stream(rs.stream.depth).as_video_stream_profile()
+color_profile = profile.get_stream(rs.stream.color).as_video_stream_profile()
+depth_intrin = depth_profile.get_intrinsics()
+color_intrin = color_profile.get_intrinsics()
+depth_to_color = depth_profile.get_extrinsics_to(color_profile)
+color_to_depth = color_profile.get_extrinsics_to(depth_profile)
+depth_scale = profile.get_device().first_depth_sensor().get_depth_scale()
 
 
 # =========================
@@ -112,9 +134,15 @@ detection_enabled = True
 use_yolo = True  # M 키: YOLO <-> HSV 전환
 imgsz_index = 0  # I 키: YOLO_IMGSZ 전환
 model_name = args.model  # V 키: MODELS 전환
+align_enabled = not args.no_align  # A 키: depth 전체 정렬 ON/OFF
 
 # 모델·입력 크기별 YOLO 통계 (종료 시 출력)
 yolo_stats = {(m, s): {"ms": [], "frames": 0, "conf": []} for m in MODELS for s in YOLO_IMGSZ}
+
+# align ON/OFF별 depth 좌표 맞추는 시간·프레임 간격 (종료 시 출력)
+#   depth_ms: ON = rs.align 전체 프레임 변환, OFF = bbox 중심 1점 투영 (검출 없으면 0)
+#   latency_ms: 촬영 시각 → 이 프레임을 받은 시각. 추론이 카메라 주기보다 느리면 큐에 쌓인 지난 프레임을 받아 커짐
+align_stats = {mode: {"depth_ms": [], "loop_ms": [], "latency_ms": []} for mode in (True, False)}
 
 video_writer = None
 record_queue = None
@@ -131,11 +159,23 @@ RECORD_FOURCC = "VP80"
 
 # 모두 미리 로드 (전환 시 끊김 없도록)
 models = {name: YOLO(str(path)) for name, path in MODELS.items()}
+models.update({key: YOLO(str(path)) for key, path in SIZE_MODELS.items()})
+
+
+def get_model(name, size):
+    """그 크기 전용 모델이 있으면 그것, 없으면 640 학습 모델"""
+    return models.get((name, size), models[name])
+
+
+def model_label(name, size):
+    """화면·통계 표시용 이름: 전용 모델이면 학습 크기 표시 (예: v3@256)"""
+    return f"{name}@{size[1]}" if (name, size) in SIZE_MODELS else name
+
 
 # 모델·크기별 워밍업 (첫 추론은 느려서 통계가 왜곡됨)
-for model in models.values():
+for name in MODELS:
     for size in YOLO_IMGSZ:
-        model.predict(np.zeros((HEIGHT, WIDTH, 3), np.uint8), imgsz=size, device=YOLO_DEVICE, verbose=False)
+        get_model(name, size).predict(np.zeros((HEIGHT, WIDTH, 3), np.uint8), imgsz=size, device=YOLO_DEVICE, verbose=False)
 
 
 def detect_yolo(frame):
@@ -144,7 +184,7 @@ def detect_yolo(frame):
     size = YOLO_IMGSZ[imgsz_index]
 
     t0 = time.perf_counter()
-    boxes = models[model_name].predict(frame, imgsz=size, conf=YOLO_CONF, device=YOLO_DEVICE, verbose=False)[0].boxes
+    boxes = get_model(model_name, size).predict(frame, imgsz=size, conf=YOLO_CONF, device=YOLO_DEVICE, verbose=False)[0].boxes
     elapsed_ms = (time.perf_counter() - t0) * 1000  # 전처리 + 추론 + 후처리
 
     stats = yolo_stats[(model_name, size)]
@@ -165,7 +205,7 @@ def detect_yolo(frame):
 def print_yolo_stats():
     """모델·입력 크기별 처리 시간·검출률 출력 (PC 속도라 Pi와 절대값은 다름, 크기 간 비율을 봄)"""
 
-    print(f"\n{'model':>5} {'imgsz':>9} {'frames':>7} {'mean ms':>8} {'p50 ms':>7} {'FPS':>6} {'detect':>7} {'conf':>6}")
+    print(f"\n{'model':>7} {'imgsz':>9} {'frames':>7} {'mean ms':>8} {'p50 ms':>7} {'FPS':>6} {'detect':>7} {'conf':>6}")
 
     for (name, (h, w)), stats in yolo_stats.items():
         if stats["frames"] == 0:
@@ -175,8 +215,26 @@ def print_yolo_stats():
         detect_ratio = len(stats["conf"]) / stats["frames"]
         conf = f"{statistics.mean(stats['conf']):.3f}" if stats["conf"] else "-"
 
-        print(f"{name:>5} {w:>4}x{h:<4} {stats['frames']:7d} {mean_ms:8.1f} {statistics.median(stats['ms']):7.1f} "
+        print(f"{model_label(name, (h, w)):>7} {w:>4}x{h:<4} {stats['frames']:7d} {mean_ms:8.1f} {statistics.median(stats['ms']):7.1f} "
               f"{1000 / mean_ms:6.1f} {detect_ratio:7.1%} {conf:>6}")
+
+
+def print_align_stats():
+    """align ON/OFF별 depth 좌표 맞추는 시간과 프레임 간격 (YOLO 크기·모델이 같을 때 비교해야 의미 있음)"""
+
+    print(f"\n[camera {FPS} FPS]")
+    print(f"{'align':>6} {'frames':>7} {'depth ms':>9} {'p95 ms':>7} {'loop ms':>8} {'FPS':>6} {'latency p50':>12}")
+
+    for mode, stats in align_stats.items():
+        if not stats["loop_ms"] or not stats["depth_ms"]:
+            continue
+
+        depth_ms = stats["depth_ms"]
+        p95 = sorted(depth_ms)[int(len(depth_ms) * 0.95)]
+        loop_ms = statistics.mean(stats["loop_ms"])
+
+        print(f"{'ON' if mode else 'OFF':>6} {len(stats['loop_ms']):7d} {statistics.mean(depth_ms):9.2f} {p95:7.2f} "
+              f"{loop_ms:8.1f} {1000 / loop_ms:6.1f} {statistics.median(stats['latency_ms']):9.1f} ms")
 
 
 def detect_hsv(frame):
@@ -271,8 +329,40 @@ def stop_recording():
 # Depth
 # =========================
 
+def color_box_to_depth_box(depth_frame, x1, y1, x2, y2):
+    """align 끔: color bbox -> depth 영상 좌표 bbox
+
+    전체 프레임을 정렬하지 않고 bbox 중심 1점만 depth 좌표로 투영한다.
+    크기는 두 카메라의 초점거리 비로 환산 (D435는 depth 화각이 더 넓어 같은 물체가 작게 찍힘).
+    투영 실패(중심 깊이를 못 찾음)면 None
+    """
+
+    cx = (x1 + x2) / 2
+    cy = (y1 + y2) / 2
+
+    # 인자 순서 주의: color_to_depth, depth_to_color 순 (pyrealsense2 2.58 시그니처).
+    # 인터넷 예제에 흔한 반대 순서로 넣으면 수십 px 어긋난 곳의 depth를 읽는다
+    u, v = rs.rs2_project_color_pixel_to_depth_pixel(
+        depth_frame.get_data(), depth_scale, MIN_DEPTH, MAX_DEPTH,
+        depth_intrin, color_intrin, color_to_depth, depth_to_color, [cx, cy])
+
+    if u < 0 or v < 0:
+        return None
+
+    half_w = (x2 - x1) * depth_intrin.fx / color_intrin.fx / 2
+    half_h = (y2 - y1) * depth_intrin.fy / color_intrin.fy / 2
+
+    return int(u - half_w), int(v - half_h), int(u + half_w), int(v + half_h)
+
+
 def get_median_depth(depth_frame, x1, y1, x2, y2):
-    """ROI 깊이 중앙값 (m) -> (depth, stats). 범위 밖·유효 픽셀 부족이면 0.0 (perception 노드 z=0과 같음)"""
+    """ROI 깊이 중앙값 (m) -> (depth, stats). 범위 밖·유효 픽셀 부족이면 0.0 (perception 노드 z=0과 같음)
+
+    bbox 좌표는 depth 영상 기준 (align ON이면 color와 같은 좌표, OFF면 color_box_to_depth_box 결과)
+    """
+
+    depth_image = np.asanyarray(depth_frame.get_data())
+    img_h, img_w = depth_image.shape
 
     box_width = x2 - x1
     box_height = y2 - y1
@@ -284,12 +374,10 @@ def get_median_depth(depth_frame, x1, y1, x2, y2):
     cy = (y1 + y2) // 2
 
     rx1 = max(0, cx - roi_width // 2)
-    rx2 = min(WIDTH, cx + roi_width // 2)
+    rx2 = min(img_w, cx + roi_width // 2)
 
     ry1 = max(0, cy - roi_height // 2)
-    ry2 = min(HEIGHT, cy + roi_height // 2)
-
-    depth_image = np.asanyarray(depth_frame.get_data())
+    ry2 = min(img_h, cy + roi_height // 2)
 
     # raw(z16) -> 미터 단위
     roi = depth_image[ry1:ry2, rx1:rx2] * depth_frame.get_units()
@@ -422,19 +510,35 @@ cv2.moveWindow(WINDOW_NAME, 0, 0)
 cv2.moveWindow(ROI_WINDOW_NAME, WIDTH + 20, 0)
 
 
+last_loop_t = None
+
 try:
 
     while True:
 
         frames = pipeline.wait_for_frames()
-        # 뎁스카메라와 RGB카메라 시점 정렬
-        aligned_frames = align.process(frames)
 
-        depth_frame = aligned_frames.get_depth_frame()
-        color_frame = aligned_frames.get_color_frame()
+        loop_t = time.perf_counter()
+        if last_loop_t is not None:
+            align_stats[align_enabled]["loop_ms"].append((loop_t - last_loop_t) * 1000)
+        last_loop_t = loop_t
+
+        if align_enabled:
+            # 뎁스카메라와 RGB카메라 시점 정렬 (depth 전체 프레임을 color 좌표로 변환)
+            t0 = time.perf_counter()
+            frames = align.process(frames)
+            depth_ms = (time.perf_counter() - t0) * 1000
+        else:
+            depth_ms = 0.0  # 검출되면 bbox 중심 투영 시간을 더함
+
+        depth_frame = frames.get_depth_frame()
+        color_frame = frames.get_color_frame()
 
         if not depth_frame or not color_frame:
             continue
+
+        # 촬영 시각(global time, ms) → 받은 시각
+        align_stats[align_enabled]["latency_ms"].append(time.time() * 1000 - color_frame.get_timestamp())
 
         # 원본 RGB 프레임
         raw_frame = np.asanyarray(
@@ -475,13 +579,17 @@ try:
                 cx = x1 + w // 2
                 cy = y1 + h // 2
 
-                depth, stats = get_median_depth(
-                    depth_frame,
-                    x1,
-                    y1,
-                    x2,
-                    y2
-                )
+                if align_enabled:
+                    depth_box = box
+                else:
+                    t0 = time.perf_counter()
+                    depth_box = color_box_to_depth_box(depth_frame, x1, y1, x2, y2)
+                    depth_ms += (time.perf_counter() - t0) * 1000
+
+                if depth_box is not None:
+                    depth, stats = get_median_depth(depth_frame, *depth_box)
+                else:
+                    depth, stats = 0.0, None  # 투영 실패: 중심 깊이를 못 찾음
 
                 # 화면 왼쪽 끝에 닿으면 depth 사각지대로 보고 0 처리
                 left_edge = x1 <= LEFT_EDGE_PX
@@ -555,14 +663,17 @@ try:
 
                     rx1, ry1, rx2, ry2 = stats["roi"]
 
-                    # 깊이 계산에 사용한 ROI
-                    cv2.rectangle(
-                        display_frame,
-                        (rx1, ry1),
-                        (rx2, ry2),
-                        (0, 255, 255),
-                        1
-                    )
+                    # 깊이 계산에 사용한 ROI (align OFF면 depth 좌표라 color 화면에 그리지 않음)
+                    if align_enabled:
+                        cv2.rectangle(
+                            display_frame,
+                            (rx1, ry1),
+                            (rx2, ry2),
+                            (0, 255, 255),
+                            1
+                        )
+                    else:
+                        debug_lines.append(f"Depth px: ({(rx1 + rx2) // 2}, {(ry1 + ry2) // 2})")
 
                     roi_depth = stats["roi_depth"]
                     raw_median = stats["raw_median"]
@@ -597,14 +708,27 @@ try:
                         1
                     )
 
+        align_stats[align_enabled]["depth_ms"].append(depth_ms)
+
         # =========================
         # 상태 표시
         # =========================
 
+        cv2.putText(
+            display_frame,
+            f"CAM {FPS} FPS | ALIGN: {'ON (full)' if align_enabled else 'OFF (bbox center)'} {depth_ms:.1f} ms"
+            f" | latency {align_stats[align_enabled]['latency_ms'][-1]:.0f} ms",
+            (10, 85),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (0, 255, 255),
+            2
+        )
+
         if detection_enabled and use_yolo:
             h_in, w_in = YOLO_IMGSZ[imgsz_index]
             last_ms = yolo_stats[(model_name, (h_in, w_in))]["ms"][-1]
-            detection_text = f"DETECTION: ON (YOLO {model_name} {w_in}x{h_in}) {last_ms:.0f} ms ({1000 / last_ms:.1f} FPS)"
+            detection_text = f"DETECTION: ON (YOLO {model_label(model_name, (h_in, w_in))} {w_in}x{h_in}) {last_ms:.0f} ms ({1000 / last_ms:.1f} FPS)"
         elif detection_enabled:
             detection_text = "DETECTION: ON (HSV)"
         else:
@@ -644,7 +768,7 @@ try:
 
         cv2.putText(
             display_frame,
-            "D: Detection | M: YOLO/HSV | V: v1/v2/v3 | I: YOLO size | R: Record | Q: Quit",
+            "D: Detect | M: YOLO/HSV | V: model | I: size | A: Align | R: Rec | Q: Quit",
             (10, HEIGHT - 15),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.45,
@@ -716,14 +840,21 @@ try:
 
             names = list(MODELS)
             model_name = names[(names.index(model_name) + 1) % len(names)]
-            print(f"[YOLO MODEL] {model_name}")
+            print(f"[YOLO MODEL] {model_label(model_name, YOLO_IMGSZ[imgsz_index])}")
 
         elif key == ord("i"):
 
             imgsz_index = (imgsz_index + 1) % len(YOLO_IMGSZ)
 
             h_in, w_in = YOLO_IMGSZ[imgsz_index]
-            print(f"[YOLO SIZE] {w_in}x{h_in}")
+            print(f"[YOLO SIZE] {w_in}x{h_in} ({model_label(model_name, (h_in, w_in))})")
+
+        elif key == ord("a"):
+
+            align_enabled = not align_enabled
+            last_loop_t = None  # 전환 직후 간격은 두 모드가 섞이므로 버림
+
+            print("[ALIGN]", "ON (full frame)" if align_enabled else "OFF (bbox center only)")
 
         elif key == ord("d"):
 
@@ -770,3 +901,4 @@ finally:
     cv2.destroyAllWindows()
 
     print_yolo_stats()
+    print_align_stats()
