@@ -147,6 +147,7 @@ class PlanningMaster(Node):
         self.tgt_arm_pose = self.nominal_pose.copy()
         self.cur_arm_pose = self.nominal_pose.copy()  # 초기값, motor_cb에서 실제 절대각 수신
         self.cur_arm_pose_valid = False
+        self.joint_stale = True  # 관절 피드백 침묵 여부 (check_timeouts에서 갱신)
         self.cur_object_xyz = None  # 로봇 기준 (x 전방, y 좌측, z 위쪽), m
         self.cur_object_planar_dis = None  # 로봇 기준 수평 거리, m
         self.cur_object_yaw_deg = None  # 로봇 전방 기준 방위각, 반시계+
@@ -298,7 +299,8 @@ class PlanningMaster(Node):
         self.detection_stale = stale(self.last_cam_time, self.detection_timeout_s)
         self.imu_stale = stale(self.last_imu_time, self.imu_timeout_s)
         self.odom_stale = stale(self.last_odom_time, self.odom_timeout_s)
-        if stale(self.last_joint_time, self.joint_timeout_s):
+        self.joint_stale = stale(self.last_joint_time, self.joint_timeout_s)
+        if self.joint_stale:
             self.cur_arm_pose_valid = False
         # 값이 NaN 인 메시지라도 계속 오고 있으면 invalid, 아예 안 오면 timeout
         self.joint_rx_stale = stale(self.last_joint_rx, self.joint_timeout_s)
@@ -323,8 +325,15 @@ class PlanningMaster(Node):
 
         # reason 형식: <소스>_<timeout|invalid|error...>  (진단은 <센서>_diag_<상태>)
         reason = None
+
+        # IMU·odom·관절 피드백은 OpenCR 시리얼 패킷 하나로 함께 온다.
+        # 셋이 동시에 끊기면 진단이 꺼져 있어도 OpenCR(또는 control_master) 단절로 본다.
+        control_silent = self.imu_stale and self.odom_stale and self.joint_rx_stale
         if h is not None and h.blocking:
             reason = h.reason                          # mcu/arm_motor/wheel_motor/camera _diag_*
+        elif control_silent:
+            reason = 'control_timeout'
+
         elif self.detection_stale:
             reason = 'detection_timeout'
         elif not self.camera_input_valid:
