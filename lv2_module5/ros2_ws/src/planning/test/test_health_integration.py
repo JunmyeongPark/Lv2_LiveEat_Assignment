@@ -314,6 +314,62 @@ class HealthIntegrationTest(unittest.TestCase):
         self.node.run()
         self.assertEqual(self.node.health_reason, 'arm_invalid')
 
+    def test_control_link_silence_is_mcu_fault_without_diagnostics(self):
+        # OpenCR가 끊기면 IMU·odom·관절이 동시에 침묵한다. 진단이 꺼져 있어도 mcu_fault.
+        self.node.health_monitor = None
+        self.node.health_enabled = False
+
+        def feed_all():
+            self.imu()
+            self.node.odom_yaw_cb(Float32(data=0.0))
+            self.joints()
+            for _ in range(3):
+                self.frame()
+
+        feed_all()
+        self.node.run()
+        self.assertFalse(self.node.health_blocked)
+
+        self.now += 1.0               # 제어 쪽 입력 셋 다 침묵, 카메라만 신선
+        self.frame()
+        self.node.run()
+        self.assertEqual(self.node.state, 'fault')
+        self.assertEqual(self.node.health_reason, 'mcu_fault')
+
+        self.imu()                    # 복구: 제어 입력 셋이 돌아옴 (검출 프레임은 1개만)
+        self.node.odom_yaw_cb(Float32(data=0.0))
+        self.joints()
+        self.frame()
+        self.node.run()
+        self.assertFalse(self.node.health_blocked)
+        self.assertEqual(self.node.state, 'idle')
+        self.assertEqual(self.node.recovered_from, 'mcu_fault')
+
+    def test_partial_control_silence_keeps_specific_reason(self):
+        self.node.health_monitor = None
+        self.node.health_enabled = False
+
+        def feed(imu=True, odom=True, joint=True):
+            if imu:
+                self.imu()
+            if odom:
+                self.node.odom_yaw_cb(Float32(data=0.0))
+            if joint:
+                self.joints()
+            for _ in range(3):
+                self.frame()
+
+        feed()
+        self.now += 1.0
+        feed(joint=False)             # 관절만 침묵 → arm_invalid
+        self.node.run()
+        self.assertEqual(self.node.health_reason, 'arm_invalid')
+
+        self.now += 1.0
+        feed(imu=False, odom=False)   # IMU·odom만 침묵 → heading_unavailable
+        self.node.run()
+        self.assertEqual(self.node.health_reason, 'heading_unavailable')
+
     def test_normal_miss_search_turns_with_tilt_levels(self):
         self.healthy()
         self.frame(0.0)
