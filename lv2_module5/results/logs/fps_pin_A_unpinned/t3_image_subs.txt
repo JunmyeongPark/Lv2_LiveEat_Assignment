@@ -1,0 +1,72 @@
+Type: sensor_msgs/msg/Image
+
+Publisher count: 1
+
+Node name: camera
+Node namespace: /camera
+Topic type: sensor_msgs/msg/Image
+Topic type hash: RIHS01_d31d41a9a4c4bc8eae9be757b0beed306564f7526c88ea6a4588fb9582527d47
+Endpoint type: PUBLISHER
+GID: 01.0f.5f.90.f3.19.fe.32.00.00.00.00.00.00.2e.03
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): KEEP_LAST (1)
+  Durability: TRANSIENT_LOCAL
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Subscription count: 1
+
+Node name: perception_master
+Node namespace: /
+Topic type: sensor_msgs/msg/Image
+Topic type hash: RIHS01_d31d41a9a4c4bc8eae9be757b0beed306564f7526c88ea6a4588fb9582527d47
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.5f.90.60.1a.a3.c0.00.00.00.00.00.00.14.04
+QoS profile:
+  Reliability: BEST_EFFORT
+  History (Depth): KEEP_LAST (5)
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Type: sensor_msgs/msg/Image
+
+Publisher count: 1
+
+Node name: camera
+Node namespace: /camera
+Topic type: sensor_msgs/msg/Image
+Topic type hash: RIHS01_d31d41a9a4c4bc8eae9be757b0beed306564f7526c88ea6a4588fb9582527d47
+Endpoint type: PUBLISHER
+GID: 01.0f.5f.90.f3.19.fe.32.00.00.00.00.00.00.34.03
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): KEEP_LAST (1)
+  Durability: TRANSIENT_LOCAL
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Subscription count: 1
+
+Node name: perception_master
+Node namespace: /
+Topic type: sensor_msgs/msg/Image
+Topic type hash: RIHS01_d31d41a9a4c4bc8eae9be757b0beed306564f7526c88ea6a4588fb9582527d47
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.5f.90.60.1a.a3.c0.00.00.00.00.00.00.16.04
+QoS profile:
+  Reliability: BEST_EFFORT
+  History (Depth): KEEP_LAST (5)
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+

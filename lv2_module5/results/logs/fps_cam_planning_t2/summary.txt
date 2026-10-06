@@ -1,0 +1,6 @@
+run    frames infer_mean  infer_p95 callback_mean      fps      cpu  clk_min_MHz   temp_max
+t2        436      107.9      128.2         111.9     8.03     178%         1800       61.8
+
+이미지 구독자 수 (1이 정상 = perception_master만):
+/home/pa01/fps_cam_planning_t2/t2_image_subs.txt:Subscription count: 1
+/home/pa01/fps_cam_planning_t2/t2_image_subs.txt:Subscription count: 1

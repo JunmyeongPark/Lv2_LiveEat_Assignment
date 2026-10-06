@@ -1,0 +1,21 @@
+top - 20:16:41 up  1:13,  6 users,  load average: 1.78, 1.26, 0.76
+Tasks: 189 total,   2 running, 187 sleeping,   0 stopped,   0 zombie
+%Cpu(s): 61.2 us,  8.2 sy,  0.0 ni, 30.6 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st 
+MiB Mem :   3778.8 total,   1849.5 free,    961.2 used,   1154.0 buff/cache     
+MiB Swap:      0.0 total,      0.0 free,      0.0 used.   2817.6 avail Mem 
+
+    PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+   7820 pa01      20   0 1323604 162980  61560 R 191.7   4.2   0:47.41 percept+
+   7611 pa01      20   0 1850420 157560  70852 S  41.7   4.1   0:22.07 realsen+
+   7733 pa01      20   0 1114444 106672  36988 S  25.0   2.8   0:08.78 plannin+
+   7957 pa01      20   0   11636   4976   3012 R  25.0   0.1   0:00.06 top
+      1 root      20   0   25576  16236  10852 S   0.0   0.4   0:03.83 systemd
+      2 root      20   0       0      0      0 S   0.0   0.0   0:00.02 kthreadd
+      3 root      20   0       0      0      0 S   0.0   0.0   0:00.00 pool_wo+
+      4 root       0 -20       0      0      0 I   0.0   0.0   0:00.00 kworker+
+      5 root       0 -20       0      0      0 I   0.0   0.0   0:00.00 kworker+
+      6 root       0 -20       0      0      0 I   0.0   0.0   0:00.00 kworker+
+      7 root       0 -20       0      0      0 I   0.0   0.0   0:00.00 kworker+
+      8 root       0 -20       0      0      0 I   0.0   0.0   0:00.00 kworker+
+     12 root      20   0       0      0      0 I   0.0   0.0   0:00.39 kworker+
+pid 7820's current affinity list: 0,1

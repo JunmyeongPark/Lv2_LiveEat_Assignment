@@ -1,0 +1,21 @@
+top - 20:13:11 up  1:10,  5 users,  load average: 2.52, 1.02, 0.57
+Tasks: 183 total,   2 running, 181 sleeping,   0 stopped,   0 zombie
+%Cpu(s): 30.4 us,  6.5 sy,  0.0 ni, 63.0 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st 
+MiB Mem :   3778.8 total,   1876.0 free,    935.1 used,   1153.5 buff/cache     
+MiB Swap:      0.0 total,      0.0 free,      0.0 used.   2843.7 avail Mem 
+
+    PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+   7018 pa01      20   0 1466300 170480  61560 R 100.0   4.4   0:47.87 percept+
+   6643 pa01      20   0 1915320 159624  70776 S  41.7   4.1   0:42.85 realsen+
+   6640 pa01      20   0 1114524 106756  36984 S  16.7   2.8   0:22.26 plannin+
+   6365 root      20   0       0      0      0 I   8.3   0.0   0:00.27 kworker+
+   7159 pa01      20   0   10952   4988   3020 R   8.3   0.1   0:00.03 top
+      1 root      20   0   25576  16236  10852 S   0.0   0.4   0:03.78 systemd
+      2 root      20   0       0      0      0 S   0.0   0.0   0:00.02 kthreadd
+      3 root      20   0       0      0      0 S   0.0   0.0   0:00.00 pool_wo+
+      4 root       0 -20       0      0      0 I   0.0   0.0   0:00.00 kworker+
+      5 root       0 -20       0      0      0 I   0.0   0.0   0:00.00 kworker+
+      6 root       0 -20       0      0      0 I   0.0   0.0   0:00.00 kworker+
+      7 root       0 -20       0      0      0 I   0.0   0.0   0:00.00 kworker+
+      8 root       0 -20       0      0      0 I   0.0   0.0   0:00.00 kworker+
+pid 7018's current affinity list: 0-3

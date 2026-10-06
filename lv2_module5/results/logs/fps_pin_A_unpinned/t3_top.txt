@@ -1,0 +1,21 @@
+top - 20:12:10 up  1:09,  5 users,  load average: 1.49, 0.54, 0.39
+Tasks: 184 total,   2 running, 182 sleeping,   0 stopped,   0 zombie
+%Cpu(s): 66.7 us,  7.8 sy,  0.0 ni, 25.5 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st 
+MiB Mem :   3778.8 total,   1863.2 free,    948.0 used,   1153.3 buff/cache     
+MiB Swap:      0.0 total,      0.0 free,      0.0 used.   2830.7 avail Mem 
+
+    PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+   6752 pa01      20   0 1470552 166376  61528 R 138.5   4.3   0:52.89 percept+
+   6643 pa01      20   0 1915320 159624  70776 S  46.2   4.1   0:17.19 realsen+
+   6640 pa01      20   0 1114524 106756  36984 S  15.4   2.8   0:10.09 plannin+
+   6889 pa01      20   0   11744   4968   3012 R  15.4   0.1   0:00.04 top
+     15 root      20   0       0      0      0 I   7.7   0.0   0:01.27 rcu_pre+
+   4074 pa01      20   0 1106084 100712  35196 S   7.7   2.6   0:10.97 python3
+      1 root      20   0   25576  16236  10852 S   0.0   0.4   0:03.78 systemd
+      2 root      20   0       0      0      0 S   0.0   0.0   0:00.02 kthreadd
+      3 root      20   0       0      0      0 S   0.0   0.0   0:00.00 pool_wo+
+      4 root       0 -20       0      0      0 I   0.0   0.0   0:00.00 kworker+
+      5 root       0 -20       0      0      0 I   0.0   0.0   0:00.00 kworker+
+      6 root       0 -20       0      0      0 I   0.0   0.0   0:00.00 kworker+
+      7 root       0 -20       0      0      0 I   0.0   0.0   0:00.00 kworker+
+pid 6752's current affinity list: 0-3

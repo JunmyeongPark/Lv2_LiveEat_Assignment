@@ -8,6 +8,8 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 NCNN_DIR=${NCNN_DIR:-$HOME/ncnn-install/lib/cmake/ncnn}
 PKGS=${*:-perception planning control}
 
+set +u  # ROS setup.bash는 정의 안 된 변수를 참조함 (set -u와 충돌)
 source /opt/ros/${ROS_DISTRO:-lyrical}/setup.bash
+set -u
 cd "$HERE/../ros2_ws"
 colcon build --packages-select $PKGS --cmake-args -Dncnn_DIR="$NCNN_DIR"

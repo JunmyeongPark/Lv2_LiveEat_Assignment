@@ -17,9 +17,9 @@ perception_master:
     input_width: 320
     input_height: 256
     conf_threshold: 0.25
-    num_threads: 4            # Pi4 4코어 모두 추론에 사용
-                              # 단독 측정에선 3이 더 빠름 (results/realtime_ncnn_vs_onnx.md 2.6절: 6.88 vs 5.84 FPS)
-                              # → 판단·제어 노드와 함께 띄운 상태에서 재측정 후 결정
+    num_threads: 3            # Pi4 4코어 중 1개는 카메라·판단·제어용으로 남김
+                              # 4스레드는 다른 노드와 코어를 다퉈 느려짐: 카메라+판단 실행 시 4스레드 4.63 FPS, 3스레드 6.89 FPS
+                              # (results/logs/fps_cam_planning/, 카메라만: realtime_ncnn_vs_onnx.md 2.6절 5.84 vs 6.88 FPS)
     target_class: -1         # -1 = 모든 클래스 중 최고 점수
     depth_roi_ratio: 0.4     # perception_test/yolo/realsense_gpt.py와 같은 값
     min_depth: 0.2
