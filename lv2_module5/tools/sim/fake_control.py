@@ -259,6 +259,9 @@ class FakeControl(Node):
             elif self.opencr_down:
                 st.level = DiagnosticStatus.STALE
                 st.message = 'opencr down'
+            elif name in ('arm_motor', 'wheel_motor') and not self.motor_enable:
+                st.level = DiagnosticStatus.ERROR     # 'm' 키로 모터를 끄면 모터 진단도 이상으로 보고
+                st.message = 'motor disabled (sim)'
             else:
                 st.level = level
                 st.message = 'error (sim)' if self.health_error else 'ok'
