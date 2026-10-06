@@ -5,6 +5,8 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 import math
+import os
+import time
 from collections import deque
 from planning.health_monitor import SENSORS, HealthMonitor
 from planning.dashboard import StatusDashboard
@@ -200,9 +202,15 @@ class PlanningMaster(Node):
 
         # 상태 전이 기록: 바뀔 때마다 ROS 로그 한 줄 (dashboard 를 안 켜도 원인 추적 가능)
         self._prev_transition = None
-        # 터미널 대시보드 (시뮬 fake_planning 과 같은 화면). event_log 를 주면 전이 기록을 파일로도 남김
-        self.dashboard_ui = (StatusDashboard(self, log_path=str(param('event_log', '')))
-                             if bool(param('dashboard', False)) else None)
+        # 상태·reason 전이 기록 파일 ('' 이면 안 남김). 대시보드와 무관하게 동작
+        self.event_log = None
+        event_log = str(param('event_log', ''))
+        if event_log:
+            os.makedirs(os.path.dirname(os.path.abspath(event_log)), exist_ok=True)
+            self.event_log = open(event_log, 'a', buffering=1)   # 줄 단위로 바로 기록
+            self.event_log.write(f'# planning events {time.strftime("%Y-%m-%d %H:%M:%S")}\n')
+        # 터미널 대시보드 (시뮬 fake_planning 과 같은 화면)
+        self.dashboard_ui = StatusDashboard(self) if bool(param('dashboard', False)) else None
 
         self.timer = self.create_timer(1.0 / self.control_rate_hz, self.run)
 
@@ -703,8 +711,11 @@ class PlanningMaster(Node):
             return
         prev = self._prev_transition
         self._prev_transition = key
-        if prev is not None and prev[0] != key[0]:      # 상태가 바뀐 경우만 (reason 만 바뀐 건 대시보드에서)
-            self.get_logger().info(f'{prev[0].upper()} -> {key[0].upper()} reason={key[1]}')
+        frm = prev[0].upper() if prev else 'START'
+        if self.event_log is not None:                  # 파일: reason 변화까지 모두
+            self.event_log.write(f'{time.strftime("%H:%M:%S")} {frm:>9} -> {key[0].upper():<9} reason={key[1]}\n')
+        if prev is not None and prev[0] != key[0]:      # 화면 로그: 상태가 바뀐 경우만
+            self.get_logger().info(f'{frm} -> {key[0].upper()} reason={key[1]}')
 
     def stop_and_publish(self):
         """종료 시 정지 명령을 한 번 보낸다."""

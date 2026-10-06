@@ -3,18 +3,13 @@
 planning_master 를 dashboard:=true 로 실행하면 0.2 s 마다 화면을 갱신한다.
   - 현재 상태 · reason · 진단 · 입력별 마지막 수신 시간 · 추정 위치 · 출력 명령
   - 상태 전이 기록: 매 제어 주기마다 검사하므로 한 주기(약 33 ms)만 스친 FAULT 도 남는다
-event_log 경로를 주면 전이 기록을 파일에도 남긴다 (색 코드 없이, 화면에서 밀려나도 확인 가능).
+전이 기록 파일(event_log)은 planning_master 가 직접 남긴다 (대시보드를 꺼도 동작).
 
 실행 예
   ros2 run planning planning_master --ros-args --params-file lv2_module5/config/planning.yaml -p dashboard:=true
-  ... -p dashboard:=true -p event_log:=results/logs/planning_events.txt
 """
-import os
-import re
 import sys
 import time
-
-_ANSI = re.compile(r'\033\[[0-9;]*[A-Za-z]|\x1b\[[0-9;]*[A-Za-z]')
 
 
 class StatusDashboard:
@@ -24,13 +19,8 @@ class StatusDashboard:
               'fault': '\033[35m'}
     B, D, R, G, Y, C, X = '\033[1m', '\033[2m', '\033[31m', '\033[32m', '\033[33m', '\033[36m', '\033[0m'
 
-    def __init__(self, node, max_events=10, log_path=''):
+    def __init__(self, node, max_events=10):
         self.n = node
-        self.log = None
-        if log_path:
-            os.makedirs(os.path.dirname(os.path.abspath(log_path)), exist_ok=True)
-            self.log = open(log_path, 'a', buffering=1)       # 줄 단위로 바로 기록
-            self.log.write(f'# planning events {time.strftime("%Y-%m-%d %H:%M:%S")}\n')
         self.t0 = time.monotonic()
         self.events = []
         self.max_events = max_events
@@ -55,8 +45,6 @@ class StatusDashboard:
             self.events.append(f'{self._t():7.2f}s  {frm:>9} → {col}{n.state.upper():<9}{self.X} '
                                f'reason={n.status_reason()}{extra}')
             self.events = self.events[-self.max_events:]
-            if self.log is not None:
-                self.log.write(time.strftime('%H:%M:%S ') + _ANSI.sub('', self.events[-1]) + '\n')
             self.prev = key
 
     def _age(self, last):
