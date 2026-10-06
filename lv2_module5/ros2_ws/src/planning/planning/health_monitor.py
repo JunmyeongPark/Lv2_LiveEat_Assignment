@@ -1,11 +1,12 @@
 """health_monitor.py — 인지·제어 health 5개 구독 → 종합 판정 (이슈 #6, FDIR의 Recovery)
 
-판정 우선순위: mcu_fault > motor_fault > camera_stale > imu_fallback > ok
-- 센서가 "비정상"이 되는 경우 두 가지
-    (1) 받은 메시지의 level 이 ERROR(2) 또는 STALE(3)
-    (2) 메시지가 아예 안 옴 (마지막 수신 후 stale_timeout_s 초 경과)
-- 복귀: OK 메시지가 recover_ok_count 번 연속 와야 "정상"으로 인정 (깜빡임 방지)
-- 시작 직후에는 OK를 아직 못 받았으므로 "비정상"으로 시작 (보수적)
+reason 형식: <센서>_diag_<상태>   (센서: mcu, arm_motor, wheel_motor, camera, imu)
+  상태  timeout    = 진단 메시지가 stale_timeout_s 동안 안 옴
+        error      = 마지막 진단 level 이 ERROR(2) 또는 STALE(3) (warn_is_ok=false 면 WARN 도)
+        recovering = 정상 메시지를 받는 중이지만 아직 recover_ok_count 번 연속이 안 됨 (깜빡임 방지)
+판정 우선순위: mcu > arm_motor > wheel_motor > camera > imu > ok
+  - mcu·모터·카메라 이상은 정지(blocking), imu 이상은 엔코더 heading 으로 대체(정지 안 함)
+- 시작 직후에는 진단을 아직 못 받았으므로 *_diag_timeout 으로 시작 (보수적)
 """
 from dataclasses import dataclass
 from functools import partial
@@ -31,13 +32,18 @@ def _level_to_int(level):
     return int(level)
 
 
+PRIORITY = ('mcu', 'arm_motor', 'wheel_motor', 'camera', 'imu')
+BLOCKING = ('mcu', 'arm_motor', 'wheel_motor', 'camera')   # 이상이면 정지
+
+
 @dataclass
 class HealthResult:
     camera_ok: bool
     imu_ok: bool
     motor_ok: bool
     mcu_ok: bool
-    reason: str          # 'ok' | 'imu_fallback' | 'camera_stale' | 'motor_fault' | 'mcu_fault'
+    reason: str          # 'ok' | '<센서>_diag_<timeout|error|recovering>'
+    blocking: bool       # True 면 정지해야 하는 진단 이상
 
     @property
     def use_encoder_heading(self):
@@ -56,6 +62,7 @@ class HealthMonitor:
 
         self._last_rx = {s: None for s in SENSORS}   # 마지막 수신 시각(초)
         self._ok_cnt = {s: 0 for s in SENSORS}       # 연속 OK 메시지 수
+        self._last_bad = {s: False for s in SENSORS}  # 마지막 메시지가 비정상 level 이었는지
         self._subscriptions = []
         for s in SENSORS:
             topic = self._param(f'health.topics.{s}', DEFAULT_TOPICS[s])
@@ -79,27 +86,30 @@ class HealthMonitor:
             self._ok_cnt[sensor] = 0
         self._last_rx[sensor] = now
         good = level == OK or (level == WARN and self._warn_ok)
+        self._last_bad[sensor] = not good
         self._ok_cnt[sensor] = min(self._ok_cnt[sensor] + 1, self._recover_n) if good else 0
 
-    def _sensor_ok(self, sensor, now):
+    def _status(self, sensor, now):
+        """'ok' | 'timeout' | 'error' | 'recovering'"""
         last = self._last_rx[sensor]
         if last is None or not 0 <= now - last <= self._timeout:
             self._ok_cnt[sensor] = 0
-            return False
-        return self._ok_cnt[sensor] >= self._recover_n
+            return 'timeout'
+        if self._last_bad[sensor]:
+            return 'error'
+        return 'ok' if self._ok_cnt[sensor] >= self._recover_n else 'recovering'
+
+    def _sensor_ok(self, sensor, now):
+        return self._status(sensor, now) == 'ok'
 
     def evaluate(self):
         now = self._now()
-        ok = {s: self._sensor_ok(s, now) for s in SENSORS}
+        st = {s: self._status(s, now) for s in SENSORS}
+        ok = {s: st[s] == 'ok' for s in SENSORS}
+        reason, blocking = 'ok', False
+        for s in PRIORITY:                  # OpenCR 가 죽으면 모터·IMU 값도 믿을 수 없으므로 mcu 최우선
+            if not ok[s]:
+                reason, blocking = f'{s}_diag_{st[s]}', s in BLOCKING
+                break
         motor_ok = ok['arm_motor'] and ok['wheel_motor']
-        if not ok['mcu']:
-            reason = 'mcu_fault'            # OpenCR 가 죽으면 모터·IMU 값도 믿을 수 없으므로 최우선
-        elif not motor_ok:
-            reason = 'motor_fault'
-        elif not ok['camera']:
-            reason = 'camera_stale'
-        elif not ok['imu']:
-            reason = 'imu_fallback'
-        else:
-            reason = 'ok'
-        return HealthResult(ok['camera'], ok['imu'], motor_ok, ok['mcu'], reason)
+        return HealthResult(ok['camera'], ok['imu'], motor_ok, ok['mcu'], reason, blocking)

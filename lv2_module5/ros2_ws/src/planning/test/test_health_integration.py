@@ -47,6 +47,9 @@ class HealthIntegrationTest(unittest.TestCase):
         n.state = 'idle'
         n.recovered_from = None
         n.last_fault_reason = None
+        n.miss_streak = 0
+        n.joint_invalid = False
+        n.last_joint_rx = None
         n.heading_source = 'none'
         n.health_blocked = False
         n.cur_arm_pose_valid = False
@@ -106,7 +109,7 @@ class HealthIntegrationTest(unittest.TestCase):
     def test_startup_without_health_faults_with_zero_command(self):
         self.node.run()
         self.assertEqual(self.node.state, 'fault')
-        self.assertEqual(self.node.health_reason, 'mcu_fault')
+        self.assertEqual(self.node.health_reason, 'mcu_diag_timeout')
         self.assertEqual(self.node.cmd_vel_msg.linear.x, 0)
         self.assert_zero_arm_cmd()
 
@@ -126,12 +129,12 @@ class HealthIntegrationTest(unittest.TestCase):
         self.node.arm_cmd_pub.reset_mock()
         self.node.run()
         self.assertEqual(self.node.state, 'fault')
-        self.assertEqual(self.node.health_reason, 'mcu_fault')
+        self.assertEqual(self.node.health_reason, 'mcu_diag_error')
         self.assert_zero_arm_cmd()
         for _ in range(3):
             self.diag('mcu')
         self.node.run()
-        self.assertEqual(self.node.health_reason, 'motor_fault')
+        self.assertEqual(self.node.health_reason, 'wheel_motor_diag_error')
         self.assertEqual(self.node.cmd_vel_msg.angular.z, 0)
 
     def test_camera_fault_commands_zero_pose_and_stays_in_fault(self):
@@ -143,7 +146,7 @@ class HealthIntegrationTest(unittest.TestCase):
         self.assertEqual(self.node.tgt_arm_pose, [0.0, 0.0])
         self.node.run()
         self.assertEqual(self.node.state, 'fault')
-        self.assertIn('camera_stale', self.node._status_text())
+        self.assertIn('camera_diag_error', self.node._status_text())
 
     def test_recovery_needs_three_health_messages_then_new_detection_frames(self):
         self.healthy()
@@ -198,6 +201,35 @@ class HealthIntegrationTest(unittest.TestCase):
         self.assertAlmostEqual(n.arm_pose_at(None)[1], 20.0, places=3)   # stamp 없음 → 현재값
         n.arm_pose_hist.clear()
 
+    def test_miss_debounce_stops_first_then_searches(self):
+        self.healthy()
+        for i in range(self.node.miss_frames - 1):
+            self.frame(0.0)
+            self.node.run()
+            self.assertEqual(self.node.state, 'tracking')          # 아직 탐색 안 함
+            self.assertEqual(self.node.cmd_vel_msg.linear.x, 0)    # 첫 미검출부터 정지
+            self.assertEqual(self.node.cmd_vel_msg.angular.z, 0)
+        self.frame()                                               # 다시 보이면 카운트 리셋
+        self.node.run()
+        self.assertEqual(self.node.miss_streak, 0)
+        self.assertEqual(self.node.state, 'tracking')
+        for _ in range(self.node.miss_frames):
+            self.frame(0.0)
+        self.node.run()
+        self.assertEqual(self.node.state, 'searching')
+
+    def test_diag_reason_names(self):
+        self.healthy()
+        self.diag('arm_motor', 2)
+        self.node.run()
+        self.assertEqual(self.node.health_reason, 'arm_motor_diag_error')
+        self.diag('arm_motor')                                     # OK 1회 → 아직 복귀 전
+        self.node.run()
+        self.assertEqual(self.node.health_reason, 'arm_motor_diag_recovering')
+        self.now += 0.6                                            # 진단 끊김
+        self.node.run()
+        self.assertEqual(self.node.health_reason, 'mcu_diag_timeout')
+
     def test_health_gap_resets_count_even_without_evaluate(self):
         self.diagnostics()
         self.now += .6
@@ -208,7 +240,7 @@ class HealthIntegrationTest(unittest.TestCase):
     def test_backward_clock_resets_health(self):
         self.diagnostics()
         self.now -= 1
-        self.assertEqual(self.node.health_monitor.evaluate().reason, 'mcu_fault')
+        self.assertEqual(self.node.health_monitor.evaluate().reason, 'mcu_diag_timeout')
 
     def test_warn_policy_and_byte_levels(self):
         self.diagnostics()
@@ -256,7 +288,7 @@ class HealthIntegrationTest(unittest.TestCase):
         self.diag('imu', 2)
         self.node.run()
         self.assertEqual(self.node.state, 'fault')
-        self.assertEqual(self.node.health_reason, 'heading_unavailable')
+        self.assertEqual(self.node.health_reason, 'heading_timeout')
         self.assertEqual(self.node.cmd_vel_msg.linear.x, 0)
 
     def test_healthy_diagnostic_does_not_hide_stale_data(self):
@@ -271,7 +303,7 @@ class HealthIntegrationTest(unittest.TestCase):
         self.frame(float('nan'))
         self.node.run()
         self.assertEqual(self.node.detect_streak, 0)
-        self.assertEqual(self.node.health_reason, 'camera_invalid')
+        self.assertEqual(self.node.health_reason, 'detection_invalid')
         self.assertEqual(self.node.state, 'fault')
         self.frame(1.0, ex=float('inf'))
         self.assertEqual(self.node.detect_streak, 0)
@@ -287,7 +319,7 @@ class HealthIntegrationTest(unittest.TestCase):
         self.joints(float('nan'), 0)
         self.node.arm_cmd_pub.reset_mock()
         self.node.run()
-        self.assertEqual(self.node.health_reason, 'arm_invalid')
+        self.assertEqual(self.node.health_reason, 'joint_invalid')
         self.assertEqual(self.node.state, 'fault')
         self.assert_zero_arm_cmd()   # 이전 목표(30, 20)가 아니라 [0, 0]
 
@@ -311,12 +343,14 @@ class HealthIntegrationTest(unittest.TestCase):
         self.assertFalse(self.node.health_blocked)
         self.assertEqual(self.node.health_reason, 'health_disabled')
         self.node.last_joint_time = self.now - 1
+        self.node.last_joint_rx = self.now - 1
         self.node.run()
-        self.assertEqual(self.node.health_reason, 'arm_invalid')
+        self.assertEqual(self.node.health_reason, 'joint_timeout')
 
     def test_normal_miss_search_turns_with_tilt_levels(self):
         self.healthy()
-        self.frame(0.0)
+        for _ in range(self.node.miss_frames):
+            self.frame(0.0)
         self.node.run()
         self.assertEqual(self.node.state, 'searching')
         self.assertFalse(self.node.health_blocked)

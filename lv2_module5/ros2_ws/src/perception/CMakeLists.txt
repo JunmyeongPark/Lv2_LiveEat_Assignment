@@ -24,6 +24,7 @@ find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(message_filters REQUIRED)
+find_package(diagnostic_msgs REQUIRED)
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs videoio)
 
 # ---- perception_core: Detector(공통 + 백엔드), DepthExtractor ----
@@ -71,7 +72,7 @@ add_executable(perception_master src/perception_master.cpp)
 # ament_target_dependencies는 Lyrical에서 삭제됨 → 패키지가 내보내는 CMake target에 직접 링크
 target_link_libraries(perception_master perception_core
   rclcpp::rclcpp ${sensor_msgs_TARGETS} ${geometry_msgs_TARGETS}
-  cv_bridge::cv_bridge message_filters::message_filters)
+  cv_bridge::cv_bridge message_filters::message_filters ${diagnostic_msgs_TARGETS})
 
 set_target_properties(perception_master PROPERTIES INSTALL_RPATH "${PERCEPTION_RPATH}")
 install(TARGETS perception_master DESTINATION lib/${PROJECT_NAME})

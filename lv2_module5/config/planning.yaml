@@ -22,6 +22,7 @@ planning_master:
     odom_timeout_s: 0.5
     joint_timeout_s: 0.5
     recover_frames: 3                      # 연속 3프레임 검출 → tracking
+    miss_frames: 3                         # 연속 3프레임 미검출 → searching (정지는 첫 프레임부터)
 
     # 카메라 · 팔
     nominal_pose: [0.0, -15.0]             # [pan, tilt] deg. tilt -15 → 보는 범위 -36~6°, 바닥 0.28 m~수평선 (추종 거리 0.4 m 퍽이 화면 안)

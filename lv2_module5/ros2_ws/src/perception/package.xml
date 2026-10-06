@@ -12,6 +12,7 @@
   <depend>geometry_msgs</depend>
   <depend>cv_bridge</depend>
   <depend>message_filters</depend>
+  <depend>diagnostic_msgs</depend>
   <!-- detector_bench (PERCEPTION_BUILD_BENCH=ON) 전용 -->
   <depend>rosbag2_cpp</depend>
   <depend>rosbag2_storage</depend>

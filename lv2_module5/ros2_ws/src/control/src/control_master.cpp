@@ -15,11 +15,18 @@
 //   (디버깅 · bag 기록용 원본)
 //   /control/joint_states sensor_msgs/JointState   wheel_left_joint, wheel_right_joint,
 //                                                  arm_yaw_joint, arm_pitch_joint
+//   (진단, health_rate_hz 로 계속 발행 — 끊기면 control_master 자체가 죽은 것)
+//   /control/opencr             diagnostic_msgs/DiagnosticStatus  OpenCR 상태 패킷 수신 · 명령 송신
+//   /control/arm_motor_health   〃  팔 pos/vel NaN(펌웨어 읽기 실패) → ERROR
+//   /control/wheel_motor_health 〃  바퀴 pos/vel NaN → ERROR
+//   /control/imu_health         〃  IMU NaN(보정 중 · 실패) → ERROR
+//   OpenCR 이 ERROR 면 나머지 셋은 STALE (패킷이 없으니 상태를 모름)
 // [실행]
 //   ros2 run control control_master --ros-args --params-file lv2_module5/config/control.yaml
 
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
@@ -31,6 +38,7 @@
 #include "control/arm_command.hpp"
 #include "control/base_kinematics.hpp"
 #include "control/serial_bridge.hpp"
+#include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "geometry_msgs/msg/twist.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -63,6 +71,8 @@ public:
     if (!std::isfinite(arm_cmd_timeout_) || arm_cmd_timeout_ <= 0.0) {
       throw std::invalid_argument("arm_cmd_timeout_s must be finite and positive");
     }
+    state_timeout_ = declare_parameter("state_timeout_s", 0.5);  // OpenCR 상태 패킷 끊김 판정
+    health_rate_hz_ = declare_parameter("health_rate_hz", 10.0);
     motor_enable_ = declare_parameter("motor_enable", true);  // false: 상태는 받고, 모터에는 정지만 보냄
     const auto log_dir = declare_parameter("log_dir", std::string("results/logs"));  // "" 이면 기록 안 함
 
@@ -94,6 +104,10 @@ public:
     odom_pub_ = create_publisher<nav_msgs::msg::Odometry>("/control/odom", 10);
     imu_yaw_deg_pub_ = create_publisher<std_msgs::msg::Float32>("/control/imu_yaw_deg", 10);
     odom_yaw_deg_pub_ = create_publisher<std_msgs::msg::Float32>("/control/odom_yaw_deg", 10);
+    mcu_diag_pub_ = create_publisher<DiagStatus>("/control/opencr", 10);
+    arm_diag_pub_ = create_publisher<DiagStatus>("/control/arm_motor_health", 10);
+    wheel_diag_pub_ = create_publisher<DiagStatus>("/control/wheel_motor_health", 10);
+    imu_diag_pub_ = create_publisher<DiagStatus>("/control/imu_health", 10);
 
     // ---------- 기록 ----------
     if (!log_dir.empty()) {
@@ -102,6 +116,9 @@ public:
 
     timer_ = create_wall_timer(
       std::chrono::duration<double>(1.0 / rate_hz_), [this]() {step();});
+    // 진단은 제어 루프와 별도 타이머: 시리얼이 죽어도 계속 발행한다.
+    health_timer_ = create_wall_timer(
+      std::chrono::duration<double>(1.0 / health_rate_hz_), [this]() {publish_health();});
     RCLCPP_INFO(
       get_logger(), "포트=%s, 주기=%.0fHz, 모터=%s, 기록=%s", port_.c_str(), rate_hz_,
       motor_enable_ ? "켜짐" : "꺼짐", log_path_.empty() ? "없음" : log_path_.c_str());
@@ -175,7 +192,7 @@ private:
     }
     // 실제 모터 읽기 실패/상태 수신 단절 시 이전 피드백으로 구동하지 않는다.
     if (!wheel_state_valid_ || !arm_state_valid_ ||
-      !state_t_ || (t - *state_t_).seconds() > 0.5) {
+      !state_t_ || (t - *state_t_).seconds() > state_timeout_) {
       wheel_ = WheelCommand{};
       base_.stop();
       arm_cmd_.reset();
@@ -223,7 +240,7 @@ private:
   {
     const auto st = serial_.receive();
     if (!st) {
-      if (state_t_ && (now() - *state_t_).seconds() > 0.5) {
+      if (state_t_ && (now() - *state_t_).seconds() > state_timeout_) {
         RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "OpenCR 상태 수신 끊김");
       }
       return;
@@ -238,6 +255,8 @@ private:
 
     // IMU: 펌웨어가 보정 전/실패 시 NaN 을 보낸다. 그때는 발행하지 않아 planning 이 엔코더 heading 을 쓰게 한다.
     const bool imu_valid = std::isfinite(st->imu_yaw) && std::isfinite(st->imu_gyro_z);
+    imu_valid_ = imu_valid;
+    imu_ever_valid_ = imu_ever_valid_ || imu_valid;
     if (imu_valid) {
       sensor_msgs::msg::Imu imu;
       imu.header.stamp = stamp;
@@ -296,12 +315,69 @@ private:
     if (!motor_enable_) {
       wl = wr = 0.0;
     }
-    serial_.send_command(seq, wl, wr, arm.yaw, arm.pitch);
+    if (!serial_.send_command(seq, wl, wr, arm.yaw, arm.pitch)) {
+      tx_fail_t_ = now();
+    }
     seq_ = static_cast<uint8_t>(seq_ % 255 + 1);   // 1 ~ 255 반복, 0 은 "팔 무시" 용도로 남겨둠
+  }
+
+  // 진단 ---------------------------------------------------------------
+  using DiagStatus = diagnostic_msgs::msg::DiagnosticStatus;
+
+  static DiagStatus diag(const std::string & name, uint8_t level, const std::string & message)
+  {
+    DiagStatus d;
+    d.name = name;
+    d.hardware_id = "opencr";
+    d.level = level;
+    d.message = message;
+    return d;
+  }
+
+  static std::string fmt(const char * f, double v)
+  {
+    char b[64];
+    std::snprintf(b, sizeof(b), f, v);
+    return b;
+  }
+
+  void publish_health()
+  {
+    const rclcpp::Time t = now();
+    // ① OpenCR: 상태 패킷 수신 + 명령 송신
+    DiagStatus mcu = diag("opencr", DiagStatus::OK, "ok");
+    if (!state_t_) {
+      mcu = diag("opencr", DiagStatus::ERROR, "no packet yet");
+    } else if ((t - *state_t_).seconds() > state_timeout_) {
+      mcu = diag("opencr", DiagStatus::ERROR, fmt("no packet %.2fs", (t - *state_t_).seconds()));
+    } else if (tx_fail_t_ && (t - *tx_fail_t_).seconds() <= state_timeout_) {
+      mcu = diag("opencr", DiagStatus::ERROR, "serial write failed");
+    }
+    mcu_diag_pub_->publish(mcu);
+
+    // ② 모터 · IMU: 패킷이 없으면 상태를 모르므로 STALE
+    if (mcu.level != DiagStatus::OK) {
+      arm_diag_pub_->publish(diag("arm_motor", DiagStatus::STALE, "opencr down"));
+      wheel_diag_pub_->publish(diag("wheel_motor", DiagStatus::STALE, "opencr down"));
+      imu_diag_pub_->publish(diag("imu", DiagStatus::STALE, "opencr down"));
+      return;
+    }
+    arm_diag_pub_->publish(arm_state_valid_ ?
+      diag("arm_motor", DiagStatus::OK, "ok") :
+      diag("arm_motor", DiagStatus::ERROR, "read failed (nan)"));
+    wheel_diag_pub_->publish(wheel_state_valid_ ?
+      diag("wheel_motor", DiagStatus::OK, "ok") :
+      diag("wheel_motor", DiagStatus::ERROR, "read failed (nan)"));
+    // IMU NaN 은 못 쓰는 값 → ERROR (보정 중이든 실패든). planning 은 엔코더 heading 으로 대체.
+    imu_diag_pub_->publish(imu_valid_ ?
+      diag("imu", DiagStatus::OK, "ok") :
+      diag("imu", DiagStatus::ERROR, imu_ever_valid_ ? "nan (lost)" : "calibrating"));
   }
 
   // 설정
   double rate_hz_;
+  double state_timeout_;
+  double health_rate_hz_;
   std::string port_;
   int64_t baud_;
   double cmd_timeout_;
@@ -315,6 +391,8 @@ private:
 
   // 상태
   bool wheel_state_valid_ = false, arm_state_valid_ = false;
+  bool imu_valid_ = false, imu_ever_valid_ = false;
+  std::optional<rclcpp::Time> tx_fail_t_;          // 마지막 명령 송신 실패 시각
   double cmd_v_ = 0.0, cmd_w_ = 0.0;               // 마지막으로 받은 (v, ω)
   std::optional<rclcpp::Time> cmd_vel_t_;          // 받은 시각
   std::optional<rclcpp::Time> arm_goal_t_;
@@ -336,7 +414,8 @@ private:
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
   rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr imu_yaw_deg_pub_;
   rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr odom_yaw_deg_pub_;
-  rclcpp::TimerBase::SharedPtr timer_;
+  rclcpp::Publisher<DiagStatus>::SharedPtr mcu_diag_pub_, arm_diag_pub_, wheel_diag_pub_, imu_diag_pub_;
+  rclcpp::TimerBase::SharedPtr timer_, health_timer_;
 
   // 기록
   std::ofstream log_;
