@@ -5,7 +5,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 import math
-from planning.health_monitor import HealthMonitor
+from planning.health_monitor import SENSORS, HealthMonitor
 
 # 상태: idle / tracking / searching / lost / fault
 #   lost  = 목표 소실 (720° 탐색 실패) → 팔 nominal 복귀 → idle
@@ -82,6 +82,8 @@ class PlanningMaster(Node):
         self.lost_side_ex_threshold = float(param('lost_side_ex_threshold', 0.5))
         # fault 상태에서 발행할 팔 각도 [pan, tilt] deg
         self.fault_arm_pose = [float(v) for v in param('fault_arm_pose', [0.0, 0.0])]
+        # FAULT 해소 직후 이 시간(초) 동안 status reason 을 recovered_from:<원인> 으로 표시
+        self.recovery_reason_hold_s = float(param('recovery_reason_hold_s', 2.0))
 
         # ---------------- 퍼블리셔 · 구독자 ----------------
         self.cmd_vel_pub = self.create_publisher(Twist, cmd_vel_topic, 10)
@@ -103,6 +105,9 @@ class PlanningMaster(Node):
         self.health = None
         self.health_reason = 'initializing'
         self.health_blocked = False
+        self.last_fault_reason = None   # 가장 최근 FAULT 원인
+        self.recovered_from = None      # 표시용: 방금 복구된 FAULT 원인
+        self.recovered_until = 0.0
         self.arm_publish_enabled = True
 
         # ---------------- 상태 변수 ----------------
@@ -262,6 +267,8 @@ class PlanningMaster(Node):
         if self.health_blocked:
             # 장애(모터·팔·센서·입력 무관): 속도 0, 팔 각도 fault_arm_pose([0, 0]) 발행
             self.state = 'fault'
+            self.last_fault_reason = reason
+            self.recovered_from = None
             self.detect_streak = 0
             self._stop_vehicle()
             self.tgt_waffle_linear_vel = self.tgt_waffle_angular_vel = 0.0
@@ -456,6 +463,8 @@ class PlanningMaster(Node):
         if self.state == 'fault':
             # 장애 해소 → idle (같은 주기에 idle 동작: 팔 nominal, 검출 대기)
             self.state = 'idle'
+            self.recovered_from = self.last_fault_reason
+            self.recovered_until = self._now_s() + self.recovery_reason_hold_s
         # 인지 토픽 침묵: 미검출(z=0 수신)과 구분해 상태를 유지한 채 차체 정지
         if self.detection_stale and self.state in ('idle', 'tracking', 'searching'):
             self._stop_vehicle()
@@ -528,6 +537,25 @@ class PlanningMaster(Node):
                 self.state = 'idle'
 
     # ================= 발행 =================
+    def status_reason(self):
+        """사람이 읽는 reason. 내부 판정값(health_reason)은 그대로 두고 표시만 바꾼다."""
+        reason = self.health_reason
+        if self.health_blocked:
+            return reason
+        if self.recovered_from and self._now_s() < self.recovered_until:
+            return f'recovered_from:{self.recovered_from}'
+        if reason == 'health_disabled':
+            reason = 'ok'               # 진단 검사 OFF 여부는 diag 항목으로 따로 표시
+        if reason == 'ok' and self.state == 'lost':
+            return 'target_lost'
+        return reason
+
+    def diag_text(self):
+        """health 진단 토픽 검사 상태. OFF 면 무시 중인 진단 목록을 함께 보여준다."""
+        if self.health_enabled:
+            return 'on'
+        return 'off[' + ','.join(SENSORS) + ']'
+
     def _status_text(self):
         flags = []
         if self.detection_stale:
@@ -538,12 +566,10 @@ class PlanningMaster(Node):
             flags.append('IMU_TIMEOUT')
         if self.heading_stale:
             flags.append('HEADING_UNAVAILABLE')
-        reason = self.health_reason
-        if reason == 'ok' and self.state == 'lost':
-            reason = 'target_lost'
+        reason = self.status_reason()
         text = self.state.upper()
         text = f'{text}|{",".join(flags)}' if flags else text
-        return f'{text} reason={reason} heading={self.heading_source}'
+        return f'{text} reason={reason} heading={self.heading_source} diag={self.diag_text()}'
 
     def _publish(self):
         self.cmd_vel_msg.angular.z = self._clip(

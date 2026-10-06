@@ -45,6 +45,8 @@ class HealthIntegrationTest(unittest.TestCase):
         n.health_monitor._ok_cnt = dict.fromkeys(SENSORS, 0)
         n.health_monitor._warn_ok = True
         n.state = 'idle'
+        n.recovered_from = None
+        n.last_fault_reason = None
         n.heading_source = 'none'
         n.health_blocked = False
         n.cur_arm_pose_valid = False
@@ -162,6 +164,25 @@ class HealthIntegrationTest(unittest.TestCase):
         self.frame()
         self.node.run()
         self.assertEqual(self.node.state, 'tracking')
+
+    def test_recovery_reason_shown_then_cleared(self):
+        self.healthy()
+        self.node.last_cam_time = self.now - 1          # detection_timeout -> FAULT
+        self.node.run()
+        self.assertEqual(self.node.state, 'fault')
+        self.assertIn('reason=detection_timeout', self.node._status_text())
+        self.frame()
+        self.node.run()                                 # FAULT -> IDLE
+        self.assertEqual(self.node.state, 'idle')
+        self.assertEqual(self.node.health_reason, 'ok')  # 내부 판정값은 그대로
+        self.assertIn('reason=recovered_from:detection_timeout', self.node._status_text())
+        self.now += self.node.recovery_reason_hold_s + 0.1
+        self.diagnostics()
+        self.imu()
+        self.joints()
+        self.frame()
+        self.node.run()
+        self.assertIn('reason=ok', self.node._status_text())
 
     def test_health_gap_resets_count_even_without_evaluate(self):
         self.diagnostics()

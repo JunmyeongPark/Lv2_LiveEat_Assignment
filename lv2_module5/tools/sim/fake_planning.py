@@ -9,7 +9,7 @@
   2. 터미널에 상태 대시보드를 출력한다.
 
 실행 (ROS 2 환경 source 후, fake_control · fake_perception 과 각각 다른 터미널에서)
-  python3 fake_planning.py                         # 파라미터는 config/planning.yaml, health 꺼짐
+  python3 fake_planning.py                         # 파라미터는 config/planning.yaml, 진단 검사 OFF (diag=off[...])
   python3 fake_planning.py --health                # health 진단 검사 켜기 (fake 노드에서 'h' 로 발행)
   python3 fake_planning.py --ros-args -p search_angular_vel:=0.5   # 파라미터 덮어쓰기
 """
@@ -68,7 +68,7 @@ class StatusDashboard:
 
     def on_cycle(self):
         n = self.n
-        key = (n.state, n.health_reason)
+        key = (n.state, n.status_reason())
         if key != self.prev:
             if self.prev is None or key[0] != self.prev[0]:
                 self.state_since = time.monotonic()
@@ -78,7 +78,7 @@ class StatusDashboard:
             if n.state == 'searching' and (self.prev is None or self.prev[0] != 'searching'):
                 extra = f' (lost_side={n.lost_side})'
             self.events.append(f'{self._t():7.2f}s  {frm:>9} → {col}{n.state.upper():<9}{self.X} '
-                               f'reason={n.health_reason}{extra}')
+                               f'reason={n.status_reason()}{extra}')
             self.events = self.events[-self.max_events:]
             self.prev = key
 
@@ -92,9 +92,7 @@ class StatusDashboard:
         n = self.n
         st = n.state
         col = self.COLORS.get(st, '')
-        reason = n.health_reason
-        if reason == 'ok' and st == 'lost':
-            reason = 'target_lost'
+        reason = n.status_reason()
         obj = (f'거리 {n.cur_object_planar_dis:4.2f} m   방위 {n.cur_object_yaw_deg:+6.1f}°'
                if n.cur_object_planar_dis is not None and n.cur_object_yaw_deg is not None else '-')
         search = ''
@@ -105,8 +103,9 @@ class StatusDashboard:
         lines = [
             '\033[H\033[J' + f'{self.B}{self.C}━━━━━━━━━━━━━━━━━━━━  PLANNING MASTER  ━━━━━━━━━━━━━━━━━━━━{self.X}',
             f'  STATE  {self.B}{col}{st.upper():<10}{self.X} {time.monotonic() - self.state_since:6.1f}s   '
-            f'reason={self.Y if reason not in ("ok", "health_disabled") else ""}{reason}{self.X}   '
-            f'health={"on" if n.health_enabled else "off"}',
+            f'reason={self.Y if reason != "ok" else ""}'
+            f'{self.G if reason.startswith("recovered_from") else ""}{reason}{self.X}   '
+            f'diag={self.G if n.health_enabled else self.Y}{n.diag_text()}{self.X}',
             f'  status {self.D}{n._status_text()}{self.X}',
             '',
             f'{self.B}  입력{self.X}                 마지막 수신',
