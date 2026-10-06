@@ -347,8 +347,8 @@ class HealthIntegrationTest(unittest.TestCase):
         self.node.run()
         self.assertEqual(self.node.health_reason, 'joint_timeout')
 
-    def test_control_link_silence_is_mcu_fault_without_diagnostics(self):
-        # OpenCR가 끊기면 IMU·odom·관절이 동시에 침묵한다. 진단이 꺼져 있어도 mcu_fault.
+    def test_control_link_silence_is_control_timeout_without_diagnostics(self):
+        # OpenCR가 끊기면 IMU·odom·관절이 동시에 침묵한다. 진단이 꺼져 있어도 control_timeout.
         self.node.health_monitor = None
         self.node.health_enabled = False
 
@@ -367,7 +367,8 @@ class HealthIntegrationTest(unittest.TestCase):
         self.frame()
         self.node.run()
         self.assertEqual(self.node.state, 'fault')
-        self.assertEqual(self.node.health_reason, 'mcu_fault')
+        self.assertEqual(self.node.health_reason, 'control_timeout')
+        self.assertIn('CONTROL_TIMEOUT', self.node._status_text())
 
         self.imu()                    # 복구: 제어 입력 셋이 돌아옴 (검출 프레임은 1개만)
         self.node.odom_yaw_cb(Float32(data=0.0))
@@ -376,7 +377,7 @@ class HealthIntegrationTest(unittest.TestCase):
         self.node.run()
         self.assertFalse(self.node.health_blocked)
         self.assertEqual(self.node.state, 'idle')
-        self.assertEqual(self.node.recovered_from, 'mcu_fault')
+        self.assertEqual(self.node.recovered_from, 'control_timeout')
 
     def test_partial_control_silence_keeps_specific_reason(self):
         self.node.health_monitor = None
@@ -394,14 +395,14 @@ class HealthIntegrationTest(unittest.TestCase):
 
         feed()
         self.now += 1.0
-        feed(joint=False)             # 관절만 침묵 → arm_invalid
+        feed(joint=False)             # 관절만 침묵 → joint_timeout
         self.node.run()
-        self.assertEqual(self.node.health_reason, 'arm_invalid')
+        self.assertEqual(self.node.health_reason, 'joint_timeout')
 
         self.now += 1.0
-        feed(imu=False, odom=False)   # IMU·odom만 침묵 → heading_unavailable
+        feed(imu=False, odom=False)   # IMU·odom만 침묵 → heading_timeout
         self.node.run()
-        self.assertEqual(self.node.health_reason, 'heading_unavailable')
+        self.assertEqual(self.node.health_reason, 'heading_timeout')
 
     def test_normal_miss_search_turns_with_tilt_levels(self):
         self.healthy()

@@ -23,7 +23,8 @@ control_master 와 같은 토픽·타입으로 상태를 발행한다. 키보드
 control_master 와 같은 안전 동작
   - /planning/cmd_vel 이 cmd_timeout_s(0.3 s) 동안 없으면 바퀴 정지
   - /planning/arm_command 가 arm_cmd_timeout_s(0.3 s) 동안 없으면 현재 자세 유지
-  - OpenCR 끊김('c'): /control/* 발행 중단, 바퀴 0, 팔 유지 (펌웨어 watchdog 재현)
+  - OpenCR 끊김('c'): /control/* 데이터 발행 중단, 바퀴 0, 팔 유지 (펌웨어 watchdog 재현)
+                     health 는 실제처럼 mcu=ERROR, 나머지 STALE
 
 실행 (ROS 2 환경 source 후)
   python3 fake_control.py
@@ -247,15 +248,17 @@ class FakeControl(Node):
 
     def publish_health(self):
         level = DiagnosticStatus.ERROR if self.health_error else DiagnosticStatus.OK
+        # 실제 control_master 와 같게: OpenCR 이 끊기면 mcu=ERROR, 나머지는 STALE(상태 모름)
         for name, pub in self.pub_health.items():
-            if self.opencr_down and name != 'mcu':
-                continue
             st = DiagnosticStatus()
             st.name = f'fake_control/{name}'
             st.hardware_id = 'fake'
             if name == 'mcu' and self.opencr_down:
                 st.level = DiagnosticStatus.ERROR
-                st.message = 'opencr disconnected'
+                st.message = 'no packet (sim)'
+            elif self.opencr_down:
+                st.level = DiagnosticStatus.STALE
+                st.message = 'opencr down'
             else:
                 st.level = level
                 st.message = 'error (sim)' if self.health_error else 'ok'
