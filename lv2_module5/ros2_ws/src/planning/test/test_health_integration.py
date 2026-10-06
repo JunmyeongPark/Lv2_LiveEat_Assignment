@@ -184,6 +184,20 @@ class HealthIntegrationTest(unittest.TestCase):
         self.node.run()
         self.assertIn('reason=ok', self.node._status_text())
 
+    def test_arm_pose_at_image_time_interpolates(self):
+        n = self.node
+        n.arm_pose_hist.clear()
+        for t, tilt in ((10.0, 0.0), (10.1, 10.0), (10.2, 20.0)):
+            msg = JointState()
+            msg.header.stamp.sec, msg.header.stamp.nanosec = int(t), int(round((t % 1) * 1e9))
+            msg.name = [n.pan_joint_name, n.tilt_joint_name]
+            msg.position = [0.0, math.radians(tilt)]
+            n.motor_cb(msg)
+        self.assertAlmostEqual(n.arm_pose_at(10.05)[1], 5.0, places=3)   # 촬영 시각 보간
+        self.assertAlmostEqual(n.arm_pose_at(10.5)[1], 20.0, places=3)   # 최신 이후 → 최신값
+        self.assertAlmostEqual(n.arm_pose_at(None)[1], 20.0, places=3)   # stamp 없음 → 현재값
+        n.arm_pose_hist.clear()
+
     def test_health_gap_resets_count_even_without_evaluate(self):
         self.diagnostics()
         self.now += .6
@@ -300,15 +314,19 @@ class HealthIntegrationTest(unittest.TestCase):
         self.node.run()
         self.assertEqual(self.node.health_reason, 'arm_invalid')
 
-    def test_normal_miss_search_and_two_turns_still_work(self):
+    def test_normal_miss_search_turns_with_tilt_levels(self):
         self.healthy()
         self.frame(0.0)
         self.node.run()
         self.assertEqual(self.node.state, 'searching')
         self.assertFalse(self.node.health_blocked)
-        for i in range(1, 9):
+        levels = self.node.search_tilt_levels
+        for i in range(1, 4 * self.node.search_max_turns + 1):   # 90° 씩 = 바퀴 수 × 360°
             self.imu(i * 90)
             self.node.run()
+            turn = min(i // 4, len(levels) - 1)
+            if self.node.state == 'searching':
+                self.assertAlmostEqual(self.node.tgt_arm_pose[1], levels[turn])   # 바퀴마다 tilt 단계
         self.assertEqual(self.node.state, 'lost')
         self.assertEqual(self.node.cmd_vel_msg.angular.z, 0)
 

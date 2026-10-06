@@ -24,7 +24,7 @@ planning_master:
     recover_frames: 3                      # 연속 3프레임 검출 → tracking
 
     # 카메라 · 팔
-    nominal_pose: [0.0, 0.0]               # [pan, tilt] deg
+    nominal_pose: [0.0, -15.0]             # [pan, tilt] deg. tilt -15 → 보는 범위 -36~6°, 바닥 0.28 m~수평선 (추종 거리 0.4 m 퍽이 화면 안)
     hfov_deg: 69.0
     vfov_deg: 42.0
     pan_forward_deg: -0.09
@@ -44,11 +44,14 @@ planning_master:
     yaw_error_threshold_deg: 3.0
     linear_heading_limit_deg: 60.0
     wheel_align_gain_ratio: 0.5            # 게인 = 0.5 × waffle_max_angular_vel [1/s]
-    search_angular_vel: 0.8                # rad/s, 720° 탐색 ≈ 15.7 s (46°/s, 30fps면 시야 통과 중 약 45프레임)
-    search_max_turns: 2                    # 누적 2바퀴 → lost
+    search_angular_vel: 0.8                # rad/s, 3바퀴 탐색 ≈ 23.6 s (46°/s, 30fps면 시야 통과 중 약 45프레임)
+    search_tilt_levels: ['0', 'mid', 'max']  # 탐색 바퀴별 tilt [0, 34.5, 69] → 보는 범위 -21~21 / 13.5~55.5 / 48~90 (7.5° 겹침)
+    search_turns: 3                        # search_tilt_levels: ['stack'] 일 때만 사용
+    search_tilt_overlap_deg: 7.5           # search_tilt_levels: ['stack'] 일 때만 사용
     lost_side_ex_threshold: 0.5            # e_x >= 0.5 → 오른쪽에서 사라짐
     fault_arm_pose: [0.0, 0.0]             # FAULT(입력·센서·모터 장애) 때 발행할 팔 각도 [pan, tilt] deg. 속도는 0
     recovery_reason_hold_s: 2.0            # FAULT 해소 후 이 시간 동안 status reason = recovered_from:<원인>
+    sync_arm_to_image: true                # 영상 촬영 시각(header.stamp)의 팔 자세로 물체 위치 복원 (지연 진동 방지)
 
     # --- 이슈 #6: sensor health (health_monitor / state_machine) ---
     # status_topic은 위 토픽 섹션과 같은 값이라 한 번만 둠
