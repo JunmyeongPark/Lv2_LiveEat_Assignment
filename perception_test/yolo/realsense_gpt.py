@@ -1,3 +1,4 @@
+import argparse
 import queue
 import statistics
 import threading
@@ -12,8 +13,11 @@ from pathlib import Path
 from ultralytics import YOLO
 
 
-# 학습된 YOLO 모델 (prepare_dataset.py -> yolo detect train 결과)
-MODEL_PATH = Path(__file__).parent / "runs/target_blue/weights/best.pt"
+# 학습된 YOLO 모델 (prepare_dataset.py -> yolo detect train 결과) — V 키 또는 --model 로 전환
+MODELS = {
+    "v1": Path(__file__).parent / "runs/target_blue/weights/best.pt",
+    "v2": Path(__file__).parent / "runs/target_blue_v2/weights/best.pt",
+}
 YOLO_CONF = 0.25
 
 # YOLO 입력 크기 (높이, 너비) — I 키로 전환. Pi4 속도 개선용 크기 비교
@@ -56,6 +60,11 @@ COLOR_TOO_NEAR = (255, 0, 255)  # MIN_DEPTH 미만
 COLOR_TOO_FAR = (128, 128, 128) # MAX_DEPTH 초과
 
 
+parser = argparse.ArgumentParser()
+parser.add_argument("--model", choices=list(MODELS), default="v2", help="시작 모델 (실행 중 V 키로 전환)")
+args = parser.parse_args()
+
+
 # =========================
 # RealSense
 # =========================
@@ -92,9 +101,10 @@ recording = False
 detection_enabled = True
 use_yolo = True  # M 키: YOLO <-> HSV 전환
 imgsz_index = 0  # I 키: YOLO_IMGSZ 전환
+model_name = args.model  # V 키: MODELS 전환
 
-# 입력 크기별 YOLO 통계 (종료 시 출력)
-yolo_stats = {s: {"ms": [], "frames": 0, "conf": []} for s in YOLO_IMGSZ}
+# 모델·입력 크기별 YOLO 통계 (종료 시 출력)
+yolo_stats = {(m, s): {"ms": [], "frames": 0, "conf": []} for m in MODELS for s in YOLO_IMGSZ}
 
 video_writer = None
 record_queue = None
@@ -109,11 +119,13 @@ RECORD_FOURCC = "VP80"
 # 검출
 # =========================
 
-model = YOLO(str(MODEL_PATH))
+# 모두 미리 로드 (전환 시 끊김 없도록)
+models = {name: YOLO(str(path)) for name, path in MODELS.items()}
 
-# 크기별 워밍업 (첫 추론은 느려서 통계가 왜곡됨)
-for size in YOLO_IMGSZ:
-    model.predict(np.zeros((HEIGHT, WIDTH, 3), np.uint8), imgsz=size, device=YOLO_DEVICE, verbose=False)
+# 모델·크기별 워밍업 (첫 추론은 느려서 통계가 왜곡됨)
+for model in models.values():
+    for size in YOLO_IMGSZ:
+        model.predict(np.zeros((HEIGHT, WIDTH, 3), np.uint8), imgsz=size, device=YOLO_DEVICE, verbose=False)
 
 
 def detect_yolo(frame):
@@ -122,10 +134,10 @@ def detect_yolo(frame):
     size = YOLO_IMGSZ[imgsz_index]
 
     t0 = time.perf_counter()
-    boxes = model.predict(frame, imgsz=size, conf=YOLO_CONF, device=YOLO_DEVICE, verbose=False)[0].boxes
+    boxes = models[model_name].predict(frame, imgsz=size, conf=YOLO_CONF, device=YOLO_DEVICE, verbose=False)[0].boxes
     elapsed_ms = (time.perf_counter() - t0) * 1000  # 전처리 + 추론 + 후처리
 
-    stats = yolo_stats[size]
+    stats = yolo_stats[(model_name, size)]
     stats["ms"].append(elapsed_ms)
     stats["frames"] += 1
 
@@ -141,11 +153,11 @@ def detect_yolo(frame):
 
 
 def print_yolo_stats():
-    """입력 크기별 처리 시간·검출률 출력 (PC 속도라 Pi와 절대값은 다름, 크기 간 비율을 봄)"""
+    """모델·입력 크기별 처리 시간·검출률 출력 (PC 속도라 Pi와 절대값은 다름, 크기 간 비율을 봄)"""
 
-    print(f"\n{'imgsz':>9} {'frames':>7} {'mean ms':>8} {'p50 ms':>7} {'FPS':>6} {'detect':>7} {'conf':>6}")
+    print(f"\n{'model':>5} {'imgsz':>9} {'frames':>7} {'mean ms':>8} {'p50 ms':>7} {'FPS':>6} {'detect':>7} {'conf':>6}")
 
-    for (h, w), stats in yolo_stats.items():
+    for (name, (h, w)), stats in yolo_stats.items():
         if stats["frames"] == 0:
             continue
 
@@ -153,7 +165,7 @@ def print_yolo_stats():
         detect_ratio = len(stats["conf"]) / stats["frames"]
         conf = f"{statistics.mean(stats['conf']):.3f}" if stats["conf"] else "-"
 
-        print(f"{w:>4}x{h:<4} {stats['frames']:7d} {mean_ms:8.1f} {statistics.median(stats['ms']):7.1f} "
+        print(f"{name:>5} {w:>4}x{h:<4} {stats['frames']:7d} {mean_ms:8.1f} {statistics.median(stats['ms']):7.1f} "
               f"{1000 / mean_ms:6.1f} {detect_ratio:7.1%} {conf:>6}")
 
 
@@ -582,8 +594,8 @@ try:
 
         if detection_enabled and use_yolo:
             h_in, w_in = YOLO_IMGSZ[imgsz_index]
-            last_ms = yolo_stats[(h_in, w_in)]["ms"][-1]
-            detection_text = f"DETECTION: ON (YOLO {w_in}x{h_in}) {last_ms:.0f} ms ({1000 / last_ms:.1f} FPS)"
+            last_ms = yolo_stats[(model_name, (h_in, w_in))]["ms"][-1]
+            detection_text = f"DETECTION: ON (YOLO {model_name} {w_in}x{h_in}) {last_ms:.0f} ms ({1000 / last_ms:.1f} FPS)"
         elif detection_enabled:
             detection_text = "DETECTION: ON (HSV)"
         else:
@@ -623,7 +635,7 @@ try:
 
         cv2.putText(
             display_frame,
-            "D: Detection | M: YOLO/HSV | I: YOLO size | R: Record | Q: Quit",
+            "D: Detection | M: YOLO/HSV | V: v1/v2 | I: YOLO size | R: Record | Q: Quit",
             (10, HEIGHT - 15),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.45,
@@ -690,6 +702,12 @@ try:
             use_yolo = not use_yolo
 
             print("[MODE]", "YOLO" if use_yolo else "HSV")
+
+        elif key == ord("v"):
+
+            names = list(MODELS)
+            model_name = names[(names.index(model_name) + 1) % len(names)]
+            print(f"[YOLO MODEL] {model_name}")
 
         elif key == ord("i"):
 

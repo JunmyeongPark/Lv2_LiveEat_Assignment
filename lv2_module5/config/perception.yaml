@@ -3,8 +3,8 @@ perception_master:
   ros__parameters:
     backend: ncnn            # ncnn | onnx
     # 모델 경로: 비워 두면 launch/perception.launch.py가 패키지에 들어 있는 배포 모델
-    #   (ros2_ws/src/perception/models/target_blue_256 → install/share/perception/models/)로 채움
-    # 다른 모델을 쓰려면 launch 인자 model_dir:=<폴더> (model.ncnn.param / model.ncnn.bin)
+    #   (기본 v2: ros2_ws/src/perception/models/target_blue_v2_256 → install/share/perception/models/)로 채움
+    # 모델 선택: launch 인자 model:=v1|v2, 또는 model_dir:=<폴더> (model.ncnn.param / model.ncnn.bin / model.onnx)
     model_param: ""
     model_bin:   ""
     ncnn_input: in0

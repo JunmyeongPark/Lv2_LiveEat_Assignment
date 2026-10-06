@@ -26,12 +26,17 @@ perception_test/
 cd perception_test/yolo
 source .yolo/bin/activate
 
-python realsense_gpt.py
+python realsense_gpt.py              # v2로 시작
+python realsense_gpt.py --model v1   # v1으로 시작
 ```
 
-키: `D` 검출 ON/OFF · `M` YOLO/HSV 전환 · `R` 녹화 · `Q` 종료
+키: `D` 검출 ON/OFF · `M` YOLO/HSV 전환 · `V` v1/v2 전환 · `I` 입력 크기 · `R` 녹화 · `Q` 종료
+(종료 시 모델·입력 크기별 속도·검출률 출력)
 
-YOLO 모델: `runs/target_blue/weights/best.pt`
+| 모델 | 경로 | 데이터 |
+|---|---|---|
+| v1 | `runs/target_blue/weights/best.pt` | record 영상 1개 |
+| v2 | `runs/target_blue_v2/weights/best.pt` | + YOLO_DARK/EAST/ROOM2~5, 라벨 수정 (542장, `data/labels/labels_v2.zip`) |
 
 ## 학습
 

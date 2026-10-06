@@ -2,6 +2,7 @@
 #
 #   ros2 launch lv2_module5/launch/perception.launch.py
 #   ros2 launch lv2_module5/launch/perception.launch.py camera:=false            # 카메라를 따로 띄운 경우
+#   ros2 launch lv2_module5/launch/perception.launch.py model:=v1                # 모델 선택 (v2 기본 | v1)
 #   ros2 launch lv2_module5/launch/perception.launch.py output_topic:=/target    # 판단 노드 구독 토픽에 맞출 때
 #
 # bringup.launch.py에서 IncludeLaunchDescription으로 그대로 포함하면 된다.
@@ -12,15 +13,23 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
 
 CONFIG_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'config')
 
+# model:=<이름> → 패키지 models/ 아래 폴더 (모두 imgsz=[256,320] export, perception.yaml input 크기와 같음)
+# 폴더마다 NCNN(model.ncnn.*)과 ONNX(model.onnx)가 같은 best.pt에서 export되어 있어 backend와 무관하게 같은 모델
+MODELS = {
+    'v1': 'target_blue_256',     # perception_test/yolo/runs/target_blue
+    'v2': 'target_blue_v2_256',  # perception_test/yolo/runs/target_blue_v2
+}
+
 
 def generate_launch_description():
-    default_model_dir = os.path.join(
-        get_package_share_directory('perception'), 'models', 'target_blue_256')
+    default_model_dir = PathJoinSubstitution([
+        get_package_share_directory('perception'), 'models',
+        PythonExpression([repr(MODELS), "['", LaunchConfiguration('model'), "']"])])
     model_dir = LaunchConfiguration('model_dir')
 
     camera = IncludeLaunchDescription(
@@ -44,14 +53,17 @@ def generate_launch_description():
             {
                 'model_param': PathJoinSubstitution([model_dir, 'model.ncnn.param']),
                 'model_bin': PathJoinSubstitution([model_dir, 'model.ncnn.bin']),
+                'model_onnx': PathJoinSubstitution([model_dir, 'model.onnx']),
                 'output_topic': LaunchConfiguration('output_topic'),
             },
         ])
 
     return LaunchDescription([
         DeclareLaunchArgument('camera', default_value='true', description='RealSense 노드도 함께 실행'),
+        DeclareLaunchArgument('model', default_value='v2', choices=list(MODELS),
+                              description='배포 모델 선택 (model_dir를 주면 무시)'),
         DeclareLaunchArgument('model_dir', default_value=default_model_dir,
-                              description='model.ncnn.param / model.ncnn.bin 이 있는 폴더'),
+                              description='model.ncnn.param / model.ncnn.bin / model.onnx 가 있는 폴더'),
         DeclareLaunchArgument('output_topic', default_value='/detection',
                               description='PointStamped 발행 토픽'),
         camera,
