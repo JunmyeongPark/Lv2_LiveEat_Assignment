@@ -41,6 +41,7 @@ class PlanningMaster(Node):
         self.odom_timeout_s = float(param('odom_timeout_s', 0.5))
         self.joint_timeout_s = float(param('joint_timeout_s', 0.5))  # 관절 피드백 침묵 → 무효 처리
         self.recover_frames = int(param('recover_frames', 3))  # 연속 검출 프레임 수 → tracking 진입
+        self.miss_frames = int(param('miss_frames', 3))  # 연속 미검출 프레임 수 → searching 진입 (정지는 첫 프레임부터)
 
         # ---------------- 카메라 · 팔 ----------------
         self.nominal_pose = list(param('nominal_pose', [0.0, 0.0]))  # 정면 수평 명령. 실측 [-0.09, 0.00] deg, raw [2047, 2048]
@@ -166,6 +167,9 @@ class PlanningMaster(Node):
         self.cur_depth = 0.0  # 미검출
         self.cur_cam_timestamp = None
         self.detect_streak = 0  # 연속 검출(depth > 0) 프레임 수
+        self.miss_streak = 0    # 연속 미검출(depth == 0) 프레임 수
+        self.joint_invalid = False   # 마지막 joint_states 의 팔 값이 NaN 등
+        self.last_joint_rx = None    # 팔 관절이 담긴 joint_states 마지막 수신 시각 (유효 여부 무관)
         self.last_detected_ex = 0.0  # 마지막으로 검출된 프레임의 e_x
         self.lost_side = 'middle'  # searching 진입 시점의 마지막 검출 위치
 
@@ -186,6 +190,7 @@ class PlanningMaster(Node):
         self.detection_stale = True
         self.imu_stale = True
         self.odom_stale = True
+        self.joint_rx_stale = True
         self.camera_input_valid = False
 
         self.cmd_vel_msg = Twist()
@@ -236,8 +241,11 @@ class PlanningMaster(Node):
         # 유효한 depth > 0 프레임만 연속 검출로 인정. NaN 등은 check_health에서 입력 오류로 처리.
         if self.camera_input_valid and self.cur_depth > 0.0:
             self.detect_streak = min(self.detect_streak + 1, self.recover_frames)
+            self.miss_streak = 0
         else:
             self.detect_streak = 0
+            if self.camera_input_valid:       # depth == 0: 정상 미검출
+                self.miss_streak = min(self.miss_streak + 1, self.miss_frames)
 
     def motor_cb(self, msg):  # sensor_msgs/JointState, position [rad]
         names = list(msg.name)
@@ -247,6 +255,8 @@ class PlanningMaster(Node):
         self.cur_arm_pose_valid = len(msg.position) > max(idx) and all(
             math.isfinite(msg.position[i]) for i in idx
         )
+        self.last_joint_rx = self._now_s()
+        self.joint_invalid = not self.cur_arm_pose_valid
         if self.cur_arm_pose_valid:
             self.cur_arm_pose = [math.degrees(msg.position[i]) for i in idx]  # [pan deg, tilt deg]
             self.last_joint_time = self._now_s()
@@ -292,6 +302,8 @@ class PlanningMaster(Node):
         self.joint_stale = stale(self.last_joint_time, self.joint_timeout_s)
         if self.joint_stale:
             self.cur_arm_pose_valid = False
+        # 값이 NaN 인 메시지라도 계속 오고 있으면 invalid, 아예 안 오면 timeout
+        self.joint_rx_stale = stale(self.last_joint_rx, self.joint_timeout_s)
         if self.detection_stale:
             self.detect_streak = 0
 
@@ -311,22 +323,25 @@ class PlanningMaster(Node):
             self.cur_yaw_deg = yaw
         self.heading_source = source
 
+        # reason 형식: <소스>_<timeout|invalid|error...>  (진단은 <센서>_diag_<상태>)
         reason = None
+
         # IMU·odom·관절 피드백은 OpenCR 시리얼 패킷 하나로 함께 온다.
-        # 세 입력이 동시에 침묵하면 진단 검사가 꺼져 있어도 OpenCR 단절(mcu_fault)로 본다.
-        control_silent = self.imu_stale and self.odom_stale and self.joint_stale
-        if h is not None and h.reason in ('mcu_fault', 'motor_fault', 'camera_stale'):
-            reason = h.reason
+        # 셋이 동시에 끊기면 진단이 꺼져 있어도 OpenCR(또는 control_master) 단절로 본다.
+        control_silent = self.imu_stale and self.odom_stale and self.joint_rx_stale
+        if h is not None and h.blocking:
+            reason = h.reason                          # mcu/arm_motor/wheel_motor/camera _diag_*
         elif control_silent:
-            reason = 'mcu_fault'
+            reason = 'control_timeout'
+
         elif self.detection_stale:
             reason = 'detection_timeout'
         elif not self.camera_input_valid:
-            reason = 'camera_invalid'
+            reason = 'detection_invalid'
         elif not self.cur_arm_pose_valid:
-            reason = 'arm_invalid'
+            reason = 'joint_invalid' if (self.joint_invalid and not self.joint_rx_stale) else 'joint_timeout'
         elif self.heading_stale:
-            reason = 'heading_unavailable'
+            reason = 'heading_timeout'                 # IMU·엔코더 heading 둘 다 없음
 
         self.health_blocked = reason is not None
         self.health_reason = reason or ('imu_fallback' if source == 'encoder' else (
@@ -334,8 +349,10 @@ class PlanningMaster(Node):
         self.arm_publish_enabled = True
         if self.health_blocked:
             # 장애(모터·팔·센서·입력 무관): 속도 0, 팔 각도 fault_arm_pose([0, 0]) 발행
+            # 복귀 대기(_recovering)는 원인이 아니므로 직전 원인을 유지 (복구 표시에 원래 원인을 보여주기 위해)
+            if self.state != 'fault' or not reason.endswith('_recovering') or self.last_fault_reason is None:
+                self.last_fault_reason = reason
             self.state = 'fault'
-            self.last_fault_reason = reason
             self.recovered_from = None
             self.detect_streak = 0
             self._stop_vehicle()
@@ -556,9 +573,11 @@ class PlanningMaster(Node):
 
         elif self.state == 'tracking':
             if self.cur_depth == 0:
-                # 미검출 첫 프레임부터 정지, 탐색은 다음 제어 주기에 실행한다.
-                self._enter_searching()
+                # 미검출 첫 프레임부터 정지(팔은 직전 목표 유지).
+                # miss_frames 연속 미검출이면 searching (화각 경계 깜빡임·순간 가림에 흔들리지 않게)
                 self._stop_vehicle()
+                if self.miss_streak >= self.miss_frames:
+                    self._enter_searching()
                 return
 
             if not self.cur_arm_pose_valid:
@@ -638,11 +657,11 @@ class PlanningMaster(Node):
         if self.detection_stale:
             flags.append('DETECTION_TIMEOUT')
         if not self.cur_arm_pose_valid:
-            flags.append('ARM_INVALID')
+            flags.append('JOINT_INVALID' if (self.joint_invalid and not self.joint_rx_stale) else 'JOINT_TIMEOUT')
         if self.imu_stale:
             flags.append('IMU_TIMEOUT')
         if self.heading_stale:
-            flags.append('HEADING_UNAVAILABLE')
+            flags.append('HEADING_TIMEOUT')
         reason = self.status_reason()
         text = self.state.upper()
         text = f'{text}|{",".join(flags)}' if flags else text
