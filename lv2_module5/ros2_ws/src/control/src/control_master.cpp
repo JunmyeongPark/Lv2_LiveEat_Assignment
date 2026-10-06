@@ -148,6 +148,8 @@ private:
     p.max_wheel = declare_parameter("max_wheel", p.max_wheel);
     p.max_acc_v = declare_parameter("max_acc_v", p.max_acc_v);
     p.max_acc_w = declare_parameter("max_acc_w", p.max_acc_w);
+    p.right_wheel_gain = declare_parameter("right_wheel_gain", p.right_wheel_gain);
+    p.slip_correction = declare_parameter("slip_correction", p.slip_correction);
     return p;
   }
 

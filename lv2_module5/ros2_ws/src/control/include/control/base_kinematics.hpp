@@ -17,6 +17,8 @@ struct BaseParams
   double max_wheel = 7.8;           // 바퀴 속도 한계 [rad/s]
   double max_acc_v = 0.5;           // 직진 가속도 한계 [m/s^2]
   double max_acc_w = 3.0;           // 회전 가속도 한계 [rad/s^2]
+  double right_wheel_gain = 1.0;    // 오른쪽 바퀴 명령 배율 (직진 보정, 1.0 = 보정 없음)
+  bool slip_correction = true;      // 회전 미끄러짐 보정 k(v, ω) 사용 (base_kinematics.cpp 의 표)
 };
 
 // 한 주기 결과 (명령 + 기록용 중간값)
@@ -50,6 +52,8 @@ public:
   BaseOdom odom(double wheel_vel_l, double wheel_vel_r, double pos_l, double pos_r);
 
 private:
+  double slip_scale(double v, double w) const;   // 회전 미끄러짐 배율 (base_kinematics.cpp)
+
   BaseParams p_;
   double v_ref_ = 0.0, w_ref_ = 0.0;
   bool odom_started_ = false;
