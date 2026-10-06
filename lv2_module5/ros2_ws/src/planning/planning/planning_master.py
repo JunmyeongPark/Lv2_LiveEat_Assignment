@@ -5,6 +5,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 import math
+from collections import deque
 from planning.health_monitor import SENSORS, HealthMonitor
 
 # 상태: idle / tracking / searching / lost / fault
@@ -84,6 +85,10 @@ class PlanningMaster(Node):
         self.fault_arm_pose = [float(v) for v in param('fault_arm_pose', [0.0, 0.0])]
         # FAULT 해소 직후 이 시간(초) 동안 status reason 을 recovered_from:<원인> 으로 표시
         self.recovery_reason_hold_s = float(param('recovery_reason_hold_s', 2.0))
+        # 영상 촬영 시각의 팔 자세로 물체 위치를 복원 (영상·관절 지연 차이로 생기는 tilt/pan 진동 방지)
+        self.sync_arm_to_image = bool(param('sync_arm_to_image', True))
+        self.arm_pose_hist = deque(maxlen=200)   # (stamp_s, pan_deg, tilt_deg)
+        self.cur_cam_stamp_s = None
 
         # ---------------- 퍼블리셔 · 구독자 ----------------
         self.cmd_vel_pub = self.create_publisher(Twist, cmd_vel_topic, 10)
@@ -190,6 +195,7 @@ class PlanningMaster(Node):
         self.cur_bbox_error_x = msg.point.x
         self.cur_bbox_error_y = msg.point.y
         self.cur_depth = msg.point.z
+        self.cur_cam_stamp_s = self._stamp_s(msg.header.stamp)
         self.cur_cam_timestamp = msg.header.stamp
         self.last_cam_time = now
         self.camera_input_valid = all(math.isfinite(v) for v in (
@@ -216,6 +222,34 @@ class PlanningMaster(Node):
         if self.cur_arm_pose_valid:
             self.cur_arm_pose = [math.degrees(msg.position[i]) for i in idx]  # [pan deg, tilt deg]
             self.last_joint_time = self._now_s()
+            t = self._stamp_s(msg.header.stamp)
+            if t is not None:
+                if self.arm_pose_hist and t < self.arm_pose_hist[-1][0]:
+                    self.arm_pose_hist.clear()      # 시계가 뒤로 감 (bag 재생 등)
+                self.arm_pose_hist.append((t, self.cur_arm_pose[0], self.cur_arm_pose[1]))
+
+    @staticmethod
+    def _stamp_s(stamp):
+        """builtin_interfaces/Time → 초. 비어 있으면(0) None."""
+        if stamp is None:
+            return None
+        t = getattr(stamp, 'sec', 0) + getattr(stamp, 'nanosec', 0) * 1e-9
+        return t if t > 0 else None
+
+    def arm_pose_at(self, t):
+        """시각 t 의 팔 [pan, tilt] (관절 기록 선형 보간). 기록이 없거나 t 를 모르면 최신 측정값."""
+        h = self.arm_pose_hist
+        if not self.sync_arm_to_image or t is None or not h:
+            return list(self.cur_arm_pose)
+        if t >= h[-1][0]:
+            return [h[-1][1], h[-1][2]]
+        if t <= h[0][0]:
+            return [h[0][1], h[0][2]]
+        for (t0, p0, q0), (t1, p1, q1) in zip(reversed(list(h)[:-1]), reversed(list(h)[1:])):
+            if t0 <= t <= t1:
+                a = 0.0 if t1 == t0 else (t - t0) / (t1 - t0)
+                return [p0 + a * (p1 - p0), q0 + a * (q1 - q0)]
+        return list(self.cur_arm_pose)
 
     def check_timeouts(self):
         """입력별 마지막 수신 시각으로 침묵 여부를 갱신한다."""
@@ -300,8 +334,9 @@ class PlanningMaster(Node):
         cam_left = self.cur_depth * math.tan(bbox_yaw_rad)
         cam_up = self.cur_depth * math.tan(bbox_tilt_rad)
 
-        pan_rad = math.radians(self.cur_arm_pose[0] - self.pan_forward_deg)
-        tilt_rad = math.radians(self.cur_arm_pose[1])  # 실측: 수평 0°, 위쪽+
+        img_pan, img_tilt = self.arm_pose_at(self.cur_cam_stamp_s)   # 촬영 시각의 팔 자세
+        pan_rad = math.radians(img_pan - self.pan_forward_deg)
+        tilt_rad = math.radians(img_tilt)  # 실측: 수평 0°, 위쪽+
         cp, sp = math.cos(pan_rad), math.sin(pan_rad)
         ct, st = math.cos(tilt_rad), math.sin(tilt_rad)
         ox, oy, oz = self.camera_origin_xyz

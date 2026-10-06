@@ -49,6 +49,7 @@ planning_master:
     lost_side_ex_threshold: 0.5            # e_x >= 0.5 → 오른쪽에서 사라짐
     fault_arm_pose: [0.0, 0.0]             # FAULT(입력·센서·모터 장애) 때 발행할 팔 각도 [pan, tilt] deg. 속도는 0
     recovery_reason_hold_s: 2.0            # FAULT 해소 후 이 시간 동안 status reason = recovered_from:<원인>
+    sync_arm_to_image: true                # 영상 촬영 시각(header.stamp)의 팔 자세로 물체 위치 복원 (지연 진동 방지)
 
     # --- 이슈 #6: sensor health (health_monitor / state_machine) ---
     # status_topic은 위 토픽 섹션과 같은 값이라 한 번만 둠
