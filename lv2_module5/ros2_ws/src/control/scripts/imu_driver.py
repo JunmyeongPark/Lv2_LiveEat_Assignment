@@ -23,16 +23,24 @@ OpenCR IMU 드라이버: 초기 구간(버퍼 잔여 데이터 + 자이로 보�
             print(s["yaw_deg"])
 
 사용 (단독 실행 / ROS 2 발행):
-    python3 imu_driver.py --port /dev/ttyACM0 --ros      # /imu/yaw (Float32) 발행
+    ros2 run control imu_driver.py --port /dev/ttyACM0 --ros
+        # control_master 와 같은 인터페이스로 발행 (planning 수정 불필요)
+        #   /control/imu          sensor_msgs/Imu   yaw 쿼터니언 [rad], 각속도 z [rad/s]
+        #   /control/imu_yaw_deg  std_msgs/Float32  yaw [deg] (-180 ~ 180)
+        # --imu-topic / --yaw-deg-topic 으로 토픽 변경 가능
     python3 imu_driver.py --port /dev/ttyACM0 --out imu.csv
         # 수렴 후 30초 동안 (time_s, yaw_deg)만 CSV로 저장하고 자동 종료
         # --duration N 으로 시간 변경, 0이면 Ctrl+C까지
 
 설치: sudo apt install python3-serial   (또는 pip install pyserial)
 주의: 같은 포트를 다른 프로그램이 동시에 열면 안 됩니다. 로봇은 정지 상태로 시작해야 합니다.
+주의: control_master 도 OpenCR(/dev/ttyACM0)을 쓰고 /control/imu 를 발행한다. 이 드라이버는
+      IMU 출력 전용 펌웨어로 단독 시험할 때 쓰고, control_master 와 동시에 실행하지 않는다.
+      (최종 통합은 OpenCR 펌웨어 상태 패킷의 IMU 칸 → control_master 발행)
 """
 import argparse
 import csv
+import math
 import sys
 import time
 from collections import deque
@@ -162,11 +170,13 @@ class IMUDriver:
 def run_ros(args):
     import rclpy
     from rclpy.node import Node
+    from sensor_msgs.msg import Imu
     from std_msgs.msg import Float32
 
     rclpy.init()
     node = Node("imu_driver")
-    pub = node.create_publisher(Float32, "/imu/yaw", 10)
+    imu_pub = node.create_publisher(Imu, args.imu_topic, 10)
+    yaw_pub = node.create_publisher(Float32, args.yaw_deg_topic, 10)
     drv = IMUDriver(args.port, args.baud, timeout_s=args.timeout,
                     ready_msg=args.ready_msg)
     try:
@@ -176,7 +186,16 @@ def run_ros(args):
             if s is None:
                 node.get_logger().warn("IMU 데이터 없음")
                 continue
-            pub.publish(Float32(data=s["yaw_deg"]))
+            yaw = math.atan2(math.sin(math.radians(s["yaw_deg"])),
+                             math.cos(math.radians(s["yaw_deg"])))  # -π ~ π
+            msg = Imu()
+            msg.header.stamp = node.get_clock().now().to_msg()
+            msg.header.frame_id = "imu_link"
+            msg.orientation.z = math.sin(yaw / 2.0)   # control_master 와 같은 yaw 전용 쿼터니언
+            msg.orientation.w = math.cos(yaw / 2.0)
+            msg.angular_velocity.z = math.radians(s["gz_dps"])
+            imu_pub.publish(msg)
+            yaw_pub.publish(Float32(data=float(math.degrees(yaw))))
     except KeyboardInterrupt:
         pass
     finally:
@@ -196,7 +215,10 @@ def main():
                     help="CSV 기록 시간(초, 수렴 이후부터 계산, 기본 30). 0이면 Ctrl+C 까지")
     ap.add_argument("--out", default="imu_rot.csv",
                     help="CSV 경로 (기본: imu_rot.csv)")
-    ap.add_argument("--ros", action="store_true", help="/imu/yaw (Float32)로 발행")
+    ap.add_argument("--ros", action="store_true",
+                    help="/control/imu (Imu) + /control/imu_yaw_deg (Float32) 로 발행")
+    ap.add_argument("--imu-topic", default="/control/imu")
+    ap.add_argument("--yaw-deg-topic", default="/control/imu_yaw_deg")
     args = ap.parse_args()
 
     if args.ros:

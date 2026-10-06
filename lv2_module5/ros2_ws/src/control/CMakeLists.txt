@@ -44,4 +44,7 @@ install(TARGETS control_core control_master
 )
 install(DIRECTORY include/ DESTINATION include)
 
+# Python 도구: OpenCR IMU 단독 드라이버 (ros2 run control imu_driver.py)
+install(PROGRAMS scripts/imu_driver.py DESTINATION lib/${PROJECT_NAME})
+
 ament_package()
