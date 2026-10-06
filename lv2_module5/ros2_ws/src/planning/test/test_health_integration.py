@@ -314,15 +314,19 @@ class HealthIntegrationTest(unittest.TestCase):
         self.node.run()
         self.assertEqual(self.node.health_reason, 'arm_invalid')
 
-    def test_normal_miss_search_and_two_turns_still_work(self):
+    def test_normal_miss_search_turns_with_tilt_levels(self):
         self.healthy()
         self.frame(0.0)
         self.node.run()
         self.assertEqual(self.node.state, 'searching')
         self.assertFalse(self.node.health_blocked)
-        for i in range(1, 9):
+        levels = self.node.search_tilt_levels
+        for i in range(1, 4 * self.node.search_max_turns + 1):   # 90° 씩 = 바퀴 수 × 360°
             self.imu(i * 90)
             self.node.run()
+            turn = min(i // 4, len(levels) - 1)
+            if self.node.state == 'searching':
+                self.assertAlmostEqual(self.node.tgt_arm_pose[1], levels[turn])   # 바퀴마다 tilt 단계
         self.assertEqual(self.node.state, 'lost')
         self.assertEqual(self.node.cmd_vel_msg.angular.z, 0)
 

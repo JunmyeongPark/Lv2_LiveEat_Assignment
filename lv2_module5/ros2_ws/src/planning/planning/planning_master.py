@@ -78,9 +78,36 @@ class PlanningMaster(Node):
         self.wheel_align_gain_ratio = float(param('wheel_align_gain_ratio', 0.5))
         self.wheel_align_gain = self.wheel_align_gain_ratio * self.waffle_max_angular_vel
         self.search_angular_vel = float(param('search_angular_vel', 0.8))  # rad/s, 720° 탐색 ≈ 15.7 s
-        self.search_max_turns = int(param('search_max_turns', 2))  # 누적 회전 바퀴 수 → lost
+        # 탐색 바퀴별 tilt [deg]: 한 바퀴마다 다음 높이로 고개를 바꿔 돈다. 바퀴 수 = 목록 길이 → 다 돌면 lost
+        #   목록 항목: 숫자 문자열 = 그 각도, 'nominal' = nominal_pose tilt,
+        #              'max' = tilt 상한(min(관절 한계, 90 - VFOV/2)), 'mid' = 첫 항목과 마지막 항목의 중간
+        #   기본 ['0', 'mid', 'max'] = [0, 34.5, 69] → 보는 범위 -21~21 / 13.5~55.5 / 48~90 (7.5° 씩 겹침)
+        #   ['stack'] = 상한 아래로 VFOV 씩 쌓기: tilt_k = 상한 - (k+1)·VFOV + k·overlap (search_turns 바퀴)
+        self.search_tilt_levels_param = [str(v) for v in param('search_tilt_levels', ['0', 'mid', 'max'])]
+        self.search_turns = int(param('search_turns', 2))                              # stack 바퀴 수
+        self.search_tilt_overlap_deg = float(param('search_tilt_overlap_deg', 5.0))  # 바퀴 사이 화면 겹침
         # 마지막 검출 위치 판정 경계 (정규화 e_x). e_x >= 0.5 ↔ 화면 오른쪽 1/4
         self.lost_side_ex_threshold = float(param('lost_side_ex_threshold', 0.5))
+        self.search_tilt_levels = []
+        if self.search_tilt_levels_param == ['stack']:
+            top = self.tilt_deg_limits[1]
+            levels = [top - (k + 1) * self.vfov_deg + k * self.search_tilt_overlap_deg
+                      for k in range(max(1, self.search_turns))]
+            self.search_tilt_levels = sorted(self._clip(v, self.tilt_deg_limits) for v in levels)
+        def resolve(v):
+            if v == 'nominal':
+                return self.nominal_pose[1]
+            if v == 'max':
+                return self.tilt_deg_limits[1]
+            return float(v)
+        items = [] if self.search_tilt_levels_param == ['stack'] else self.search_tilt_levels_param
+        ends = [resolve(v) for v in items if v != 'mid']
+        for v in items:
+            deg = (ends[0] + ends[-1]) / 2.0 if v == 'mid' else resolve(v)
+            self.search_tilt_levels.append(self._clip(deg, self.tilt_deg_limits))
+        if not self.search_tilt_levels:
+            raise ValueError('search_tilt_levels must not be empty')
+        self.search_max_turns = len(self.search_tilt_levels)  # 누적 회전 바퀴 수 → lost
         # fault 상태에서 발행할 팔 각도 [pan, tilt] deg
         self.fault_arm_pose = [float(v) for v in param('fault_arm_pose', [0.0, 0.0])]
         # FAULT 해소 직후 이 시간(초) 동안 status reason 을 recovered_from:<원인> 으로 표시
@@ -489,6 +516,13 @@ class PlanningMaster(Node):
         self.search_cnt = 0
         self.search_rot_deg = 0.0
         self.prev_yaw_deg = self.cur_yaw_deg
+        self._search_arm_target()
+
+    def _search_arm_target(self):
+        """탐색 중 팔: pan 은 nominal(차체 회전으로 훑음), tilt 는 현재 바퀴의 높이."""
+        level = self.search_tilt_levels[min(self.search_cnt, len(self.search_tilt_levels) - 1)]
+        self.tgt_pan_deg, self.tgt_tilt_deg = self.nominal_pose[0], level
+        self.tgt_arm_pose = [self.tgt_pan_deg, self.tgt_tilt_deg]
 
     def state_machine_run(self):
         if self.health_blocked:
@@ -555,6 +589,7 @@ class PlanningMaster(Node):
             self.prev_yaw_deg = self.cur_yaw_deg
             self.search_rot_deg += ddeg
             self.search_cnt = int(abs(self.search_rot_deg) // 360)
+            self._search_arm_target()             # 바퀴가 바뀌면 고개 높이도 바뀐다
 
             if self.search_cnt >= self.search_max_turns:
                 self.search_cnt = 0
