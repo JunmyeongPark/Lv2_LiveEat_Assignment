@@ -17,6 +17,7 @@ from ultralytics import YOLO
 MODELS = {
     "v1": Path(__file__).parent / "runs/target_blue/weights/best.pt",
     "v2": Path(__file__).parent / "runs/target_blue_v2/weights/best.pt",
+    "v3": Path(__file__).parent / "runs/target_blue_v3/weights/best.pt",
 }
 YOLO_CONF = 0.25
 
@@ -643,7 +644,7 @@ try:
 
         cv2.putText(
             display_frame,
-            "D: Detection | M: YOLO/HSV | V: v1/v2 | I: YOLO size | R: Record | Q: Quit",
+            "D: Detection | M: YOLO/HSV | V: v1/v2/v3 | I: YOLO size | R: Record | Q: Quit",
             (10, HEIGHT - 15),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.45,

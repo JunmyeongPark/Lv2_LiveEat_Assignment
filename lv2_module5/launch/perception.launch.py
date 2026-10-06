@@ -2,7 +2,7 @@
 #
 #   ros2 launch lv2_module5/launch/perception.launch.py
 #   ros2 launch lv2_module5/launch/perception.launch.py camera:=false            # 카메라를 따로 띄운 경우
-#   ros2 launch lv2_module5/launch/perception.launch.py model:=v1                # 모델 선택 (v2 기본 | v1)
+#   ros2 launch lv2_module5/launch/perception.launch.py model:=v3                # 모델 선택 (v2 기본 | v1 | v3)
 #   ros2 launch lv2_module5/launch/perception.launch.py output_topic:=/target    # 판단 노드 구독 토픽에 맞출 때
 #
 # bringup.launch.py에서 IncludeLaunchDescription으로 그대로 포함하면 된다.
@@ -23,6 +23,7 @@ CONFIG_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'co
 MODELS = {
     'v1': 'target_blue_256',     # perception_test/yolo/runs/target_blue
     'v2': 'target_blue_v2_256',  # perception_test/yolo/runs/target_blue_v2
+    'v3': 'target_blue_v3_256',  # perception_test/yolo/runs/target_blue_v3
 }
 
 
