@@ -7,6 +7,7 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 import math
 from collections import deque
 from planning.health_monitor import SENSORS, HealthMonitor
+from planning.dashboard import StatusDashboard
 
 # 상태: idle / tracking / searching / lost / fault
 #   lost  = 목표 소실 (720° 탐색 실패) → 팔 nominal 복귀 → idle
@@ -196,6 +197,12 @@ class PlanningMaster(Node):
 
         self.cmd_vel_msg = Twist()
         self.state = 'idle'
+
+        # 상태 전이 기록: 바뀔 때마다 ROS 로그 한 줄 (dashboard 를 안 켜도 원인 추적 가능)
+        self._prev_transition = None
+        # 터미널 대시보드 (시뮬 fake_planning 과 같은 화면). event_log 를 주면 전이 기록을 파일로도 남김
+        self.dashboard_ui = (StatusDashboard(self, log_path=str(param('event_log', '')))
+                             if bool(param('dashboard', False)) else None)
 
         self.timer = self.create_timer(1.0 / self.control_rate_hz, self.run)
 
@@ -686,6 +693,18 @@ class PlanningMaster(Node):
         self.calc_cur_object_pos()
         self.state_machine_run()
         self._publish()
+        self._log_transition()
+        if self.dashboard_ui is not None:
+            self.dashboard_ui.on_cycle()
+
+    def _log_transition(self):
+        key = (self.state, self.status_reason())
+        if key == self._prev_transition:
+            return
+        prev = self._prev_transition
+        self._prev_transition = key
+        if prev is not None and prev[0] != key[0]:      # 상태가 바뀐 경우만 (reason 만 바뀐 건 대시보드에서)
+            self.get_logger().info(f'{prev[0].upper()} -> {key[0].upper()} reason={key[1]}')
 
     def stop_and_publish(self):
         """종료 시 정지 명령을 한 번 보낸다."""
