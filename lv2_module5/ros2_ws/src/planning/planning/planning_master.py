@@ -5,7 +5,11 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 import math
+import os
+import time
+from collections import deque
 from planning.health_monitor import SENSORS, HealthMonitor
+from planning.dashboard import StatusDashboard
 
 # 상태: idle / tracking / searching / lost / fault
 #   lost  = 목표 소실 (720° 탐색 실패) → 팔 nominal 복귀 → idle
@@ -40,6 +44,7 @@ class PlanningMaster(Node):
         self.odom_timeout_s = float(param('odom_timeout_s', 0.5))
         self.joint_timeout_s = float(param('joint_timeout_s', 0.5))  # 관절 피드백 침묵 → 무효 처리
         self.recover_frames = int(param('recover_frames', 3))  # 연속 검출 프레임 수 → tracking 진입
+        self.miss_frames = int(param('miss_frames', 3))  # 연속 미검출 프레임 수 → searching 진입 (정지는 첫 프레임부터)
 
         # ---------------- 카메라 · 팔 ----------------
         self.nominal_pose = list(param('nominal_pose', [0.0, 0.0]))  # 정면 수평 명령. 실측 [-0.09, 0.00] deg, raw [2047, 2048]
@@ -77,13 +82,44 @@ class PlanningMaster(Node):
         self.wheel_align_gain_ratio = float(param('wheel_align_gain_ratio', 0.5))
         self.wheel_align_gain = self.wheel_align_gain_ratio * self.waffle_max_angular_vel
         self.search_angular_vel = float(param('search_angular_vel', 0.8))  # rad/s, 720° 탐색 ≈ 15.7 s
-        self.search_max_turns = int(param('search_max_turns', 2))  # 누적 회전 바퀴 수 → lost
+        # 탐색 바퀴별 tilt [deg]: 한 바퀴마다 다음 높이로 고개를 바꿔 돈다. 바퀴 수 = 목록 길이 → 다 돌면 lost
+        #   목록 항목: 숫자 문자열 = 그 각도, 'nominal' = nominal_pose tilt,
+        #              'max' = tilt 상한(min(관절 한계, 90 - VFOV/2)), 'mid' = 첫 항목과 마지막 항목의 중간
+        #   기본 ['0', 'mid', 'max'] = [0, 34.5, 69] → 보는 범위 -21~21 / 13.5~55.5 / 48~90 (7.5° 씩 겹침)
+        #   ['stack'] = 상한 아래로 VFOV 씩 쌓기: tilt_k = 상한 - (k+1)·VFOV + k·overlap (search_turns 바퀴)
+        self.search_tilt_levels_param = [str(v) for v in param('search_tilt_levels', ['0', 'mid', 'max'])]
+        self.search_turns = int(param('search_turns', 2))                              # stack 바퀴 수
+        self.search_tilt_overlap_deg = float(param('search_tilt_overlap_deg', 5.0))  # 바퀴 사이 화면 겹침
         # 마지막 검출 위치 판정 경계 (정규화 e_x). e_x >= 0.5 ↔ 화면 오른쪽 1/4
         self.lost_side_ex_threshold = float(param('lost_side_ex_threshold', 0.5))
+        self.search_tilt_levels = []
+        if self.search_tilt_levels_param == ['stack']:
+            top = self.tilt_deg_limits[1]
+            levels = [top - (k + 1) * self.vfov_deg + k * self.search_tilt_overlap_deg
+                      for k in range(max(1, self.search_turns))]
+            self.search_tilt_levels = sorted(self._clip(v, self.tilt_deg_limits) for v in levels)
+        def resolve(v):
+            if v == 'nominal':
+                return self.nominal_pose[1]
+            if v == 'max':
+                return self.tilt_deg_limits[1]
+            return float(v)
+        items = [] if self.search_tilt_levels_param == ['stack'] else self.search_tilt_levels_param
+        ends = [resolve(v) for v in items if v != 'mid']
+        for v in items:
+            deg = (ends[0] + ends[-1]) / 2.0 if v == 'mid' else resolve(v)
+            self.search_tilt_levels.append(self._clip(deg, self.tilt_deg_limits))
+        if not self.search_tilt_levels:
+            raise ValueError('search_tilt_levels must not be empty')
+        self.search_max_turns = len(self.search_tilt_levels)  # 누적 회전 바퀴 수 → lost
         # fault 상태에서 발행할 팔 각도 [pan, tilt] deg
         self.fault_arm_pose = [float(v) for v in param('fault_arm_pose', [0.0, 0.0])]
         # FAULT 해소 직후 이 시간(초) 동안 status reason 을 recovered_from:<원인> 으로 표시
         self.recovery_reason_hold_s = float(param('recovery_reason_hold_s', 2.0))
+        # 영상 촬영 시각의 팔 자세로 물체 위치를 복원 (영상·관절 지연 차이로 생기는 tilt/pan 진동 방지)
+        self.sync_arm_to_image = bool(param('sync_arm_to_image', True))
+        self.arm_pose_hist = deque(maxlen=200)   # (stamp_s, pan_deg, tilt_deg)
+        self.cur_cam_stamp_s = None
 
         # ---------------- 퍼블리셔 · 구독자 ----------------
         self.cmd_vel_pub = self.create_publisher(Twist, cmd_vel_topic, 10)
@@ -114,6 +150,8 @@ class PlanningMaster(Node):
         self.tgt_arm_pose = self.nominal_pose.copy()
         self.cur_arm_pose = self.nominal_pose.copy()  # 초기값, motor_cb에서 실제 절대각 수신
         self.cur_arm_pose_valid = False
+        self.joint_stale = True  # 관절 피드백 침묵 여부 (check_timeouts에서 갱신)
+        self.control_silent = False  # IMU·odom·관절 동시 침묵 (OpenCR 또는 control_master 단절)
         self.cur_object_xyz = None  # 로봇 기준 (x 전방, y 좌측, z 위쪽), m
         self.cur_object_planar_dis = None  # 로봇 기준 수평 거리, m
         self.cur_object_yaw_deg = None  # 로봇 전방 기준 방위각, 반시계+
@@ -133,6 +171,9 @@ class PlanningMaster(Node):
         self.cur_depth = 0.0  # 미검출
         self.cur_cam_timestamp = None
         self.detect_streak = 0  # 연속 검출(depth > 0) 프레임 수
+        self.miss_streak = 0    # 연속 미검출(depth == 0) 프레임 수
+        self.joint_invalid = False   # 마지막 joint_states 의 팔 값이 NaN 등
+        self.last_joint_rx = None    # 팔 관절이 담긴 joint_states 마지막 수신 시각 (유효 여부 무관)
         self.last_detected_ex = 0.0  # 마지막으로 검출된 프레임의 e_x
         self.lost_side = 'middle'  # searching 진입 시점의 마지막 검출 위치
 
@@ -153,10 +194,23 @@ class PlanningMaster(Node):
         self.detection_stale = True
         self.imu_stale = True
         self.odom_stale = True
+        self.joint_rx_stale = True
         self.camera_input_valid = False
 
         self.cmd_vel_msg = Twist()
         self.state = 'idle'
+
+        # 상태 전이 기록: 바뀔 때마다 ROS 로그 한 줄 (dashboard 를 안 켜도 원인 추적 가능)
+        self._prev_transition = None
+        # 상태·reason 전이 기록 파일 ('' 이면 안 남김). 대시보드와 무관하게 동작
+        self.event_log = None
+        event_log = str(param('event_log', ''))
+        if event_log:
+            os.makedirs(os.path.dirname(os.path.abspath(event_log)), exist_ok=True)
+            self.event_log = open(event_log, 'a', buffering=1)   # 줄 단위로 바로 기록
+            self.event_log.write(f'# planning events {time.strftime("%Y-%m-%d %H:%M:%S")}\n')
+        # 터미널 대시보드 (시뮬 fake_planning 과 같은 화면)
+        self.dashboard_ui = StatusDashboard(self) if bool(param('dashboard', False)) else None
 
         self.timer = self.create_timer(1.0 / self.control_rate_hz, self.run)
 
@@ -190,6 +244,7 @@ class PlanningMaster(Node):
         self.cur_bbox_error_x = msg.point.x
         self.cur_bbox_error_y = msg.point.y
         self.cur_depth = msg.point.z
+        self.cur_cam_stamp_s = self._stamp_s(msg.header.stamp)
         self.cur_cam_timestamp = msg.header.stamp
         self.last_cam_time = now
         self.camera_input_valid = all(math.isfinite(v) for v in (
@@ -202,8 +257,11 @@ class PlanningMaster(Node):
         # 유효한 depth > 0 프레임만 연속 검출로 인정. NaN 등은 check_health에서 입력 오류로 처리.
         if self.camera_input_valid and self.cur_depth > 0.0:
             self.detect_streak = min(self.detect_streak + 1, self.recover_frames)
+            self.miss_streak = 0
         else:
             self.detect_streak = 0
+            if self.camera_input_valid:       # depth == 0: 정상 미검출
+                self.miss_streak = min(self.miss_streak + 1, self.miss_frames)
 
     def motor_cb(self, msg):  # sensor_msgs/JointState, position [rad]
         names = list(msg.name)
@@ -213,9 +271,39 @@ class PlanningMaster(Node):
         self.cur_arm_pose_valid = len(msg.position) > max(idx) and all(
             math.isfinite(msg.position[i]) for i in idx
         )
+        self.last_joint_rx = self._now_s()
+        self.joint_invalid = not self.cur_arm_pose_valid
         if self.cur_arm_pose_valid:
             self.cur_arm_pose = [math.degrees(msg.position[i]) for i in idx]  # [pan deg, tilt deg]
             self.last_joint_time = self._now_s()
+            t = self._stamp_s(msg.header.stamp)
+            if t is not None:
+                if self.arm_pose_hist and t < self.arm_pose_hist[-1][0]:
+                    self.arm_pose_hist.clear()      # 시계가 뒤로 감 (bag 재생 등)
+                self.arm_pose_hist.append((t, self.cur_arm_pose[0], self.cur_arm_pose[1]))
+
+    @staticmethod
+    def _stamp_s(stamp):
+        """builtin_interfaces/Time → 초. 비어 있으면(0) None."""
+        if stamp is None:
+            return None
+        t = getattr(stamp, 'sec', 0) + getattr(stamp, 'nanosec', 0) * 1e-9
+        return t if t > 0 else None
+
+    def arm_pose_at(self, t):
+        """시각 t 의 팔 [pan, tilt] (관절 기록 선형 보간). 기록이 없거나 t 를 모르면 최신 측정값."""
+        h = self.arm_pose_hist
+        if not self.sync_arm_to_image or t is None or not h:
+            return list(self.cur_arm_pose)
+        if t >= h[-1][0]:
+            return [h[-1][1], h[-1][2]]
+        if t <= h[0][0]:
+            return [h[0][1], h[0][2]]
+        for (t0, p0, q0), (t1, p1, q1) in zip(reversed(list(h)[:-1]), reversed(list(h)[1:])):
+            if t0 <= t <= t1:
+                a = 0.0 if t1 == t0 else (t - t0) / (t1 - t0)
+                return [p0 + a * (p1 - p0), q0 + a * (q1 - q0)]
+        return list(self.cur_arm_pose)
 
     def check_timeouts(self):
         """입력별 마지막 수신 시각으로 침묵 여부를 갱신한다."""
@@ -227,8 +315,11 @@ class PlanningMaster(Node):
         self.detection_stale = stale(self.last_cam_time, self.detection_timeout_s)
         self.imu_stale = stale(self.last_imu_time, self.imu_timeout_s)
         self.odom_stale = stale(self.last_odom_time, self.odom_timeout_s)
-        if stale(self.last_joint_time, self.joint_timeout_s):
+        self.joint_stale = stale(self.last_joint_time, self.joint_timeout_s)
+        if self.joint_stale:
             self.cur_arm_pose_valid = False
+        # 값이 NaN 인 메시지라도 계속 오고 있으면 invalid, 아예 안 오면 timeout
+        self.joint_rx_stale = stale(self.last_joint_rx, self.joint_timeout_s)
         if self.detection_stale:
             self.detect_streak = 0
 
@@ -248,17 +339,25 @@ class PlanningMaster(Node):
             self.cur_yaw_deg = yaw
         self.heading_source = source
 
+        # reason 형식: <소스>_<timeout|invalid|error...>  (진단은 <센서>_diag_<상태>)
         reason = None
-        if h is not None and h.reason in ('mcu_fault', 'motor_fault', 'camera_stale'):
-            reason = h.reason
+
+        # IMU·odom·관절 피드백은 OpenCR 시리얼 패킷 하나로 함께 온다.
+        # 셋이 동시에 끊기면 진단이 꺼져 있어도 OpenCR(또는 control_master) 단절로 본다.
+        self.control_silent = control_silent = self.imu_stale and self.odom_stale and self.joint_rx_stale
+        if h is not None and h.blocking:
+            reason = h.reason                          # mcu/arm_motor/wheel_motor/camera _diag_*
+        elif control_silent:
+            reason = 'control_timeout'
+
         elif self.detection_stale:
             reason = 'detection_timeout'
         elif not self.camera_input_valid:
-            reason = 'camera_invalid'
+            reason = 'detection_invalid'
         elif not self.cur_arm_pose_valid:
-            reason = 'arm_invalid'
+            reason = 'joint_invalid' if (self.joint_invalid and not self.joint_rx_stale) else 'joint_timeout'
         elif self.heading_stale:
-            reason = 'heading_unavailable'
+            reason = 'heading_timeout'                 # IMU·엔코더 heading 둘 다 없음
 
         self.health_blocked = reason is not None
         self.health_reason = reason or ('imu_fallback' if source == 'encoder' else (
@@ -266,8 +365,10 @@ class PlanningMaster(Node):
         self.arm_publish_enabled = True
         if self.health_blocked:
             # 장애(모터·팔·센서·입력 무관): 속도 0, 팔 각도 fault_arm_pose([0, 0]) 발행
+            # 복귀 대기(_recovering)는 원인이 아니므로 직전 원인을 유지 (복구 표시에 원래 원인을 보여주기 위해)
+            if self.state != 'fault' or not reason.endswith('_recovering') or self.last_fault_reason is None:
+                self.last_fault_reason = reason
             self.state = 'fault'
-            self.last_fault_reason = reason
             self.recovered_from = None
             self.detect_streak = 0
             self._stop_vehicle()
@@ -300,8 +401,9 @@ class PlanningMaster(Node):
         cam_left = self.cur_depth * math.tan(bbox_yaw_rad)
         cam_up = self.cur_depth * math.tan(bbox_tilt_rad)
 
-        pan_rad = math.radians(self.cur_arm_pose[0] - self.pan_forward_deg)
-        tilt_rad = math.radians(self.cur_arm_pose[1])  # 실측: 수평 0°, 위쪽+
+        img_pan, img_tilt = self.arm_pose_at(self.cur_cam_stamp_s)   # 촬영 시각의 팔 자세
+        pan_rad = math.radians(img_pan - self.pan_forward_deg)
+        tilt_rad = math.radians(img_tilt)  # 실측: 수평 0°, 위쪽+
         cp, sp = math.cos(pan_rad), math.sin(pan_rad)
         ct, st = math.cos(tilt_rad), math.sin(tilt_rad)
         ox, oy, oz = self.camera_origin_xyz
@@ -454,6 +556,13 @@ class PlanningMaster(Node):
         self.search_cnt = 0
         self.search_rot_deg = 0.0
         self.prev_yaw_deg = self.cur_yaw_deg
+        self._search_arm_target()
+
+    def _search_arm_target(self):
+        """탐색 중 팔: pan 은 nominal(차체 회전으로 훑음), tilt 는 현재 바퀴의 높이."""
+        level = self.search_tilt_levels[min(self.search_cnt, len(self.search_tilt_levels) - 1)]
+        self.tgt_pan_deg, self.tgt_tilt_deg = self.nominal_pose[0], level
+        self.tgt_arm_pose = [self.tgt_pan_deg, self.tgt_tilt_deg]
 
     def state_machine_run(self):
         if self.health_blocked:
@@ -480,9 +589,11 @@ class PlanningMaster(Node):
 
         elif self.state == 'tracking':
             if self.cur_depth == 0:
-                # 미검출 첫 프레임부터 정지, 탐색은 다음 제어 주기에 실행한다.
-                self._enter_searching()
+                # 미검출 첫 프레임부터 정지(팔은 직전 목표 유지).
+                # miss_frames 연속 미검출이면 searching (화각 경계 깜빡임·순간 가림에 흔들리지 않게)
                 self._stop_vehicle()
+                if self.miss_streak >= self.miss_frames:
+                    self._enter_searching()
                 return
 
             if not self.cur_arm_pose_valid:
@@ -520,6 +631,7 @@ class PlanningMaster(Node):
             self.prev_yaw_deg = self.cur_yaw_deg
             self.search_rot_deg += ddeg
             self.search_cnt = int(abs(self.search_rot_deg) // 360)
+            self._search_arm_target()             # 바퀴가 바뀌면 고개 높이도 바뀐다
 
             if self.search_cnt >= self.search_max_turns:
                 self.search_cnt = 0
@@ -558,14 +670,16 @@ class PlanningMaster(Node):
 
     def _status_text(self):
         flags = []
+        if self.control_silent:
+            flags.append('CONTROL_TIMEOUT')
         if self.detection_stale:
             flags.append('DETECTION_TIMEOUT')
         if not self.cur_arm_pose_valid:
-            flags.append('ARM_INVALID')
+            flags.append('JOINT_INVALID' if (self.joint_invalid and not self.joint_rx_stale) else 'JOINT_TIMEOUT')
         if self.imu_stale:
             flags.append('IMU_TIMEOUT')
         if self.heading_stale:
-            flags.append('HEADING_UNAVAILABLE')
+            flags.append('HEADING_TIMEOUT')
         reason = self.status_reason()
         text = self.state.upper()
         text = f'{text}|{",".join(flags)}' if flags else text
@@ -587,6 +701,21 @@ class PlanningMaster(Node):
         self.calc_cur_object_pos()
         self.state_machine_run()
         self._publish()
+        self._log_transition()
+        if self.dashboard_ui is not None:
+            self.dashboard_ui.on_cycle()
+
+    def _log_transition(self):
+        key = (self.state, self.status_reason())
+        if key == self._prev_transition:
+            return
+        prev = self._prev_transition
+        self._prev_transition = key
+        frm = prev[0].upper() if prev else 'START'
+        if self.event_log is not None:                  # 파일: reason 변화까지 모두
+            self.event_log.write(f'{time.strftime("%H:%M:%S")} {frm:>9} -> {key[0].upper():<9} reason={key[1]}\n')
+        if prev is not None and prev[0] != key[0]:      # 화면 로그: 상태가 바뀐 경우만
+            self.get_logger().info(f'{frm} -> {key[0].upper()} reason={key[1]}')
 
     def stop_and_publish(self):
         """종료 시 정지 명령을 한 번 보낸다."""

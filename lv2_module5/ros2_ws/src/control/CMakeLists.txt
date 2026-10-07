@@ -14,6 +14,7 @@ find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
+find_package(diagnostic_msgs REQUIRED)
 
 # ROS 와 무관한 계산 · 시리얼 모듈
 add_library(control_core
@@ -35,6 +36,7 @@ target_link_libraries(control_master
   ${geometry_msgs_TARGETS}
   ${std_msgs_TARGETS}
   ${nav_msgs_TARGETS}
+  ${diagnostic_msgs_TARGETS}
 )
 
 install(TARGETS control_core control_master
