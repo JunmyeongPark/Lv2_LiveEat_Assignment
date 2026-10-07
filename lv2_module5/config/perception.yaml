@@ -3,8 +3,8 @@ perception_master:
   ros__parameters:
     backend: ncnn            # ncnn | onnx
     # 모델 경로: 비워 두면 launch/perception.launch.py가 패키지에 들어 있는 배포 모델
-    #   (기본 v3: ros2_ws/src/perception/models/target_blue_v3_256 → install/share/perception/models/)로 채움
-    # 모델 선택: launch 인자 model:=v1|v2|v3, 또는 model_dir:=<폴더> (model.ncnn.param / model.ncnn.bin / model.onnx)
+    #   (기본 v4: ros2_ws/src/perception/models/target_blue_v4_192 → install/share/perception/models/)로 채움
+    # 모델 선택: launch 인자 model:=v1|v2|v3|v4, 또는 model_dir:=<폴더> input_height:=<높이> (model.ncnn.param / model.ncnn.bin / model.onnx)
     model_param: ""
     model_bin:   ""
     ncnn_input: in0
@@ -13,15 +13,16 @@ perception_master:
     model_onnx:  ""
     output_format: auto      # auto | raw (4+nc, N) | e2e (N, 6)
     # 모델 입력 크기 = export imgsz=[height, width]
-    # 배포 모델 imgsz=[256,320] (results/realtime_ncnn_vs_onnx.md 2.6절: 640x480 대비 약 3배 FPS)
+    # 카메라 color 640x360(16:9)을 0.5배 축소해 320x180으로 사용. 180은 32의 배수가 아니라 배포 모델 v4는 imgsz=[192,320] (위아래 6px 패딩)
+    # input_height는 launch가 model:=에 맞춰 덮어씀 (v4 192, v1~v3 256)
     input_width: 320
-    input_height: 256
+    input_height: 192
     conf_threshold: 0.5      # 0.25 → 0.5: v3 검증 데이터(320x256)에서 퍽 없는 프레임 오검출 5→3, 놓친 퍽 증가 없음
     num_threads: 4            # Pi4 4코어 모두 추론에 사용
                               # 단독 측정에선 3이 더 빠름 (results/realtime_ncnn_vs_onnx.md 2.6절: 6.88 vs 5.84 FPS)
                               # → 판단·제어 노드와 함께 띄운 상태에서 재측정 후 결정
     target_class: -1         # -1 = 모든 클래스 중 최고 점수
-    depth_roi_ratio: 0.4     # perception_test/yolo/realsense_gpt.py와 같은 값
+    depth_roi_ratio: 0.4     # perception_test/yolo/realsense.py와 같은 값
     min_depth: 0.2
     max_depth: 3.0
     min_valid_ratio: 0.5
@@ -31,5 +32,12 @@ perception_master:
     output_topic: /detection
     sync_slop: 0.02          # [s] color·depth 짝 맞추기 허용 오차
     timing_csv: ""           # 경로 지정 시 프레임별 처리 시간 기록 (실시간 노드 측정용)
-    hfov_deg: 69.0           # 픽셀→각도 변환용 RGB 화각 [deg] (D435 color). 각도는 timing_csv·디버그 로그에만 기록
-    vfov_deg: 42.0
+    hfov_deg: 70.1           # 픽셀→각도 변환용 RGB 화각 [deg] (D435 color 640x360 실측 fx 456). 각도는 timing_csv·디버그 로그에만 기록
+    vfov_deg: 43.1
+    # 박스 크기 ↔ depth 검사: 추정 실제 크기(박스 긴 변 px × z / f)가 범위 밖이면 z=0
+    #   퍽 30x30x60 mm → 화면에 보이는 긴 변은 30(정면) ~ 67 mm(대각선). YOLO 박스 오차·depth 오차를 넣어 넓게 잡음
+    #   너무 큼 = depth가 뒤 배경을 읽음 / 퍽보다 큰 파란 물체, 너무 작음 = 앞을 가린 손 등의 depth
+    #   화면 끝에 닿은 박스는 잘려서 작아지므로 상한만 검사. 측정값은 timing_csv의 size_m 열
+    size_check: true
+    size_min_m: 0.015
+    size_max_m: 0.10

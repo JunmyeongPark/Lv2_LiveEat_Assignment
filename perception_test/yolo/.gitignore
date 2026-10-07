@@ -8,6 +8,7 @@ __pycache__/
 
 # YOLO 데이터셋 / 학습 결과 (prepare_dataset.py, yolo train 으로 재생성)
 dataset/
+dataset_169/
 runs/*
 *.log
 
@@ -26,8 +27,9 @@ data/labels/*/
 # 실행·테스트에 필요한 모델은 공유 (다른 노트북 / 라즈베리파이)
 #   models/yolo26n.pt -> 재학습용 사전학습 모델
 #   runs/target_blue/ (v1), runs/target_blue_v2/ (v2), runs/target_blue_v3/ (v3),
-#   runs/target_blue_v3_imgsz{320,256,160}/ (v3를 그 입력 크기로 학습, realsense_gpt.py SIZE_MODELS · imgsz320은 Pi 배포 원본) 의 weights만:
-#   best.pt          -> realsense_gpt.py (--model v1|v2|v3, V 키로 전환)
+#   runs/target_blue_v4_169/ (v3 데이터를 16:9로 변환해 imgsz=320 학습, Pi 배포 원본 · NCNN·ONNX 192x320),
+#   runs/target_blue_v3_imgsz{320,256,160}/ (v3를 그 입력 크기로 학습, realsense_test.py SIZE_MODELS · imgsz320은 Pi 배포 원본) 의 weights만:
+#   best.pt          -> realsense_test.py (--model v1|v2|v3|v4, V 키로 전환) · v4는 realsense.py
 #   best_ncnn_model/ -> ROS perception 노드 (C++ NCNN, 640x640)
 #   best_ncnn_model_480x640/, best_ncnn_model_256x320/, best_*.onnx -> NCNN 640x480·320x256, ONNX 640x640·640x480·320x256 (백엔드 비교 · results/realtime_ncnn_vs_onnx.md)
 # git은 제외된 폴더 안의 파일을 다시 포함할 수 없어서 폴더마다 단계적으로 풀어 줌
@@ -38,6 +40,7 @@ data/labels/*/
 !runs/target_blue_v3_imgsz320/
 !runs/target_blue_v3_imgsz256/
 !runs/target_blue_v3_imgsz160/
+!runs/target_blue_v4_169/
 runs/*/*
 !runs/*/weights/
 runs/*/weights/*
