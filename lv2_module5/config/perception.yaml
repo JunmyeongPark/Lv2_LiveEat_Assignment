@@ -18,9 +18,8 @@ perception_master:
     input_width: 320
     input_height: 192
     conf_threshold: 0.5      # 0.25 → 0.5: v3 검증 데이터(320x256)에서 퍽 없는 프레임 오검출 5→3, 놓친 퍽 증가 없음
-    num_threads: 4            # Pi4 4코어 모두 추론에 사용
-                              # 단독 측정에선 3이 더 빠름 (results/realtime_ncnn_vs_onnx.md 2.6절: 6.88 vs 5.84 FPS)
-                              # → 판단·제어 노드와 함께 띄운 상태에서 재측정 후 결정
+    num_threads: 2            # 판단·제어와 함께 실행하며 2스레드 성능 비교
+                              # bringup은 pin_cpu:=false로 실행해야 이 값 사용 (true면 3으로 덮어씀)
     target_class: -1         # -1 = 모든 클래스 중 최고 점수
     depth_roi_ratio: 0.4     # perception_test/yolo/realsense.py와 같은 값
     min_depth: 0.2
