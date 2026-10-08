@@ -1,6 +1,6 @@
 #!/bin/bash
 # 장애 주입(fault_injector) 시연용 bag 기록. 사용: bash ~/start_bag_inject.sh INJ-01
-# start_bag.sh 와 같은 방식(-e 정규식)에 주입 이벤트·진단·주입 전후 토픽을 더 넣었다.
+# -e 정규식으로 토픽을 지정한다 (이 로봇의 ros2 bag record 가 토픽 나열을 받지 못함). 주입 이벤트·진단·주입 전후 토픽 포함.
 #   /inject/event      키를 누른 시각 (주입 시각)
 #   /tracking_status   planning 상태 전이 시각 (반응 시각)
 #   /detection ↔ /inject/detection, /inject/planning_cmd_vel ↔ /planning/cmd_vel  주입 전후 비교

@@ -1,7 +1,7 @@
 # M-B0 — 30 초 정상 추적 (평가 8) · B0-01
 
 - 날짜: 2026-10-08, 실제 로봇 (pa24), `bringup.launch.py` 기본 (진단 ON, perception 스레드 2)
-- 코드: `code_fingerprint.txt` (sha256 11개, PC `demo_1008` 과 일치)
+- 코드: `code_fingerprint.txt` (sha256 11개. 10개는 `control_fault_inject_Kwonhyeokmu`(238e52b) + `planning_csv_log_Kwonhyeokmu`(94f856b) 병합본, `mock_inputs.py` 는 결과 브랜치와 일치)
 - 조건: 퍽을 정면 1 m 바닥(테이프)에 두고 로봇이 다가가 0.4 m 에서 멈춘 뒤 bag 시작, 이후 **아무것도 건드리지 않음** (정지 목표)
 - 기록: bag 드라이브 `bags/B0-01` (영상 없음: 상태 · 검출 · 명령 · control), 이 폴더의 `planning_B0-01.csv` (30 Hz), `planning_events_B0-01.txt`, `control_20261008_034819.csv`
 
@@ -13,7 +13,7 @@
 | reason | `/tracking_status` | 전부 `ok` | ✅ |
 | 유효 추적 비율 | TRACKING 인 제어 주기 / 전체 제어 주기 | **100 %** (1238 / 1238, planning CSV 30 Hz) | ✅ |
 | 검출 비율 (참고) | detected=1 프레임 / 받은 프레임 | 100 % (358 / 358) — 노드 출력 기준, 사람 대조 검출률 아님 | — |
-| 처리 FPS | 받은 `/detection` 수 / 실제 경과 초 | **8.64 Hz** (357개 / 41.21 s), 간격 평균 116 ms · 최대 183 ms | 카메라 설정 30 fps 와 구분 |
+| 처리 FPS | `/detection` 수신 간격 수 / 첫 ~ 마지막 수신 시간 | **8.64 Hz** (357개 → 356 간격 / 41.21 s), 간격 평균 116 ms · 최대 183 ms | 카메라 설정 30 fps 와 구분 |
 | 수평 RMSE | √mean(ex²), 검출 · TRACKING 프레임만 | **0.0003** (358 / 358 프레임, 제외 0) | — |
 | 거리 유지 | depth 평균 | 0.416 m (0.414 ~ 0.417, 목표 0.40) | — |
 | 명령 | 최대 \|v\|, \|ω\| | 0.000 m/s, 0.002 rad/s (거의 정지 유지) | — |

@@ -110,7 +110,7 @@ def cmd_tracking(bag, s0=None, s1=None):
     use = [m.point.x for t, m in det if m.point.z > 0 and names[max(0, bisect.bisect_right(sk, t) - 1)] == 'TRACKING']
     print(f'구간 {sts[-1][0] - sts[0][0]:.1f} s, 상태 전이 {trans}, FAULT {names.count("FAULT")}, SEARCHING {names.count("SEARCHING")}')
     print(f'유효 추적 비율 {100 * names.count("TRACKING") / len(names):.1f}% ({names.count("TRACKING")}/{len(names)} /tracking_status)')
-    print(f'처리 FPS {(len(ts) - 1) / (ts[-1] - ts[0]):.2f} Hz ({len(ts)}개 / {ts[-1] - ts[0]:.2f} s), '
+    print(f'처리 FPS {(len(ts) - 1) / (ts[-1] - ts[0]):.2f} Hz ({len(ts)}개 → {len(ts) - 1} 간격 / {ts[-1] - ts[0]:.2f} s), '
           f'최대 간격 {max(y - x for x, y in zip(ts, ts[1:])) * 1000:.0f} ms')
     print(f'수평 RMSE {math.sqrt(st.mean(x * x for x in use)):.4f} (검출 · TRACKING {len(use)}/{len(det)} 프레임)')
 

@@ -29,7 +29,7 @@ def read_bag(bag_dir):
 
 def parse_status(s):
     parts = s.split()
-    d = {'state': parts[0].lower()}
+    d = {'state': parts[0].split('|')[0].lower()}   # 'FAULT|HEADING_TIMEOUT' → 'fault'
     for p in parts[1:]:
         if '=' in p:
             k, v = p.split('=', 1); d[k] = v
@@ -79,7 +79,16 @@ def main():
     # 검출 z 이력 (z=0 미검출)
     det = [(r['t'], float(r['det_z'])) for r in rows if r['det_z'] != '']
     # 미검출 구간(주입)과 재등장
-    miss_start = next((t for t, z in det if z == 0.0), None)
+    # 가림 시작 = 첫 TRACKING 이후 첫 SEARCHING 전이 직전의 '연속' 미검출 구간 시작
+    # (bag 맨 앞 준비 구간의 z=0 과 TRACKING 중 1프레임 깜빡임은 제외)
+    first_trk = next((e[0] for e in events if e[2] == 'tracking'), None)
+    srch = None if first_trk is None else next((e[0] for e in events if e[2] == 'searching' and e[0] > first_trk), None)
+    miss_start = None
+    if srch is not None:
+        for t, z in reversed([x for x in det if x[0] <= srch]):
+            if z != 0.0:
+                break
+            miss_start = t
     S['first_z0_epoch'] = miss_start
     if miss_start:
         reapp = next((t for t, z in det if t > miss_start and z > 0.0), None)

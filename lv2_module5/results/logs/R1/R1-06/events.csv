@@ -2,10 +2,9 @@ t,t_rel,from_state,to_state,from_reason,to_reason
 1791351118.2174797,0.0,,idle,,ok
 1791351121.6543734,3.4369,idle,tracking,ok,ok
 1791351129.523405,11.3059,tracking,tracking,ok,imu_fallback
-1791351129.556541,11.3391,tracking,fault|heading_timeout,imu_fallback,mcu_diag_timeout
-1791351129.6188936,11.4014,fault|heading_timeout,"fault|control_timeout,joint_timeout,imu_timeout,heading_timeout",mcu_diag_timeout,mcu_diag_timeout
-1791351130.54288,12.3254,"fault|control_timeout,joint_timeout,imu_timeout,heading_timeout",fault|heading_timeout,mcu_diag_timeout,mcu_diag_recovering
-1791351130.7357423,12.5183,fault|heading_timeout,idle,mcu_diag_recovering,recovered_from:mcu_diag_timeout
+1791351129.556541,11.3391,tracking,fault,imu_fallback,mcu_diag_timeout
+1791351130.54288,12.3254,fault,fault,mcu_diag_timeout,mcu_diag_recovering
+1791351130.7357423,12.5183,fault,idle,mcu_diag_recovering,recovered_from:mcu_diag_timeout
 1791351131.1538527,12.9364,idle,tracking,recovered_from:mcu_diag_timeout,recovered_from:mcu_diag_timeout
 1791351132.7576644,14.5402,tracking,tracking,recovered_from:mcu_diag_timeout,ok
 1791351134.2556303,16.0382,tracking,searching,ok,ok

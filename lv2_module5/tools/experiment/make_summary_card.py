@@ -21,8 +21,9 @@ SURFACE, CARD, BORDER = '#f7f7f5', '#ffffff', '#dddcd6'
 INK, INK2, MUTED = '#1f1f1d', '#4a4a46', '#7a7a74'
 STATUS = {   # (점 색, 글자)  — 색만으로 뜻을 전하지 않게 글자를 같이 쓴다
     'pass': ('#0ca30c', '통과'),
+    'part': ('#8a8a85', '부분 통과'),
     'note': ('#8a8a85', '기록'),
-    'warn': ('#fab219', '확인 필요'),
+    'warn': ('#8a8a85', '확인 필요'),
     'doc': ('#8a8a85', '문서 작업'),
     'none': ('#d03b3b', '미수행'),
 }
@@ -35,17 +36,17 @@ TILES = [
     ('평가 7', '인지 토픽 중단', '0.51 s → 정지', '마지막 검출 후 FAULT, 팔 [0, 0]', 'pass', 'logs/M-T'),
     ('평가 7', '제어 통신 중단 (kill -9)', '보드가 정지', 'OpenCR watchdog 300 ms, 육안 확인', 'pass', 'logs/M-C2'),
     ('평가 8', '정상 추적 41.3 s', 'TRACKING 100%', 'FAULT · SEARCHING 0회', 'pass', 'logs/B0-01'),
-    ('평가 8', '처리 FPS', '8.64 Hz', '/detection 357개 ÷ 41.2 s', 'pass', 'logs/B0-01'),
+    ('평가 8', '처리 FPS', '8.64 Hz', '356 간격 ÷ 41.21 s', 'pass', 'logs/B0-01'),
     ('평가 8', '수평 RMSE', '0.0003', '정지 목표 · 움직이는 목표 0.216', 'pass', 'logs/B0-01'),
     ('평가 8', '검출률 (사람 대조)', '30 / 30', '권혁무 · 정수용 육안 판정', 'pass', 'images/detection_30'),
-    ('평가 8', '배경 오검출', '0 / 19', '목표 없는 프레임에서 잘못 검출', 'pass', 'images/no_target_19'),
+    ('평가 8', '배경 오검출', '0 / 10', '목표 없는 20장 중 대조 가능 10장', 'pass', 'images/no_target_20'),
     ('평가 9', '성공 · 소실 bag', '24.1 s · 30.1 s', '재등장 → TRACKING 0.36–0.39 s', 'pass', 'logs/BAG-OK · BAG-LOST'),
     ('평가 9', '재현 (재분석 · 재처리)', '172 / 172 일치', '모터 없이 bag 재생, 값 차이 0', 'pass', 'logs/RAW-01 · RE2-01'),
 ]
 
 # 평가표 1 ~ 11 전체 상태
 TABLE = [
-    ('1', '조건 정의', 'doc'), ('2', '실행 환경', 'doc'), ('3', 'HSV 검출', 'warn'), ('4', '인터페이스', 'pass'),
+    ('1', '조건 정의', 'doc'), ('2', '실행 환경', 'doc'), ('3', '검출 (YOLO)', 'pass'), ('4', '인터페이스', 'pass'),
     ('5', 'Kp 비교', 'none'), ('6', '소실·복구', 'pass'), ('7', '통신 중단', 'pass'), ('8', '성능 측정', 'pass'),
     ('9', 'bag 재현', 'pass'), ('10', '협업·PR', 'doc'), ('11', '제출·시연', 'doc'),
 ]
@@ -90,8 +91,8 @@ def main():
         ax.text(x + bw / 2, yb + 0.6, f'{no}. {name}', fontproperties=fb, fontsize=10.5, color=INK, ha='center', va='center')
         ax.add_patch(Circle((x + 0.2, yb + 1.05), 0.06, color=color))
         ax.text(x + 0.33, yb + 1.05, label, fontproperties=fp, fontsize=9.5, color=INK2, va='center')
-    ax.text(0.5, yb + 1.75, '3: HSV 대신 YOLO (튜터 확인 필요)   5: 단일 Kp 제어가 아니라 미수행 (report.md 에 사유 기록 필요)   '
-            '1·2·10·11: report · README · team · presentation 문서',
+    ax.text(0.5, yb + 1.75, '3: HSV 대신 YOLO (튜터 승인)   5: 단일 Kp 제어가 아니라 미수행   6: M-T 8개 통과, R1 시야 안 복구 0/5   '
+            '1·2·10·11: 문서 작업',
             fontproperties=fp, fontsize=10.5, color=INK2, va='center')
 
     os.makedirs(os.path.dirname(OUT), exist_ok=True)

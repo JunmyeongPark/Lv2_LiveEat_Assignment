@@ -8,7 +8,7 @@ header.stamp 는 원본 그대로 → 같은 시각의 /detection · planning CS
 
   python3 tools/inject/jpeg_tap.py [N, 기본 6 → 30 fps 에서 5 fps] [JPEG 품질, 기본 85]
   bag: bash ~/start_bag_jpeg.sh BAG-OK
-  이미지 추출 (PC): python3 tools/experiment/extract_images.py <run_dir> --topic /camera/color/jpeg
+  이미지 보기 (PC): bag 을 재생하고 /camera/color/jpeg (CompressedImage) 를 받는다
 """
 import io
 import sys

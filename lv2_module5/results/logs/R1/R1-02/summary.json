@@ -11,12 +11,12 @@
     "searching->tracking@19.300s(ok)",
     "tracking->searching@23.098s(ok)"
   ],
-  "first_z0_epoch": 1791350667.743608,
-  "reappear_epoch": 1791350669.8278017,
-  "first_zero_cmd_after_miss_s": 0.0,
-  "to_searching_after_miss_s": 11.04215669631958,
-  "recover_time_s": 0.4256572723388672,
+  "first_z0_epoch": 1791350678.4355357,
+  "reappear_epoch": 1791350686.4920347,
+  "first_zero_cmd_after_miss_s": 0.014483451843261719,
+  "to_searching_after_miss_s": 0.35022902488708496,
+  "recover_time_s": 0.4333992004394531,
   "recover_within_3s": true,
-  "max_abs_cmd_w_during_occlusion": 0.0,
-  "occlusion_duration_s": 2.084193706512451
+  "max_abs_cmd_w_during_occlusion": 0.8,
+  "occlusion_duration_s": 8.056499004364014
 }

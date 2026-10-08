@@ -18,11 +18,11 @@
 8,정상 추적 (M-B0),B0-01,측정 구간,bag,41.3,s,통과,results/logs/B0-01/
 8,정상 추적 (M-B0),B0-01,FAULT · SEARCHING,상태 전이,0,회,통과,results/logs/B0-01/
 8,정상 추적 (M-B0),B0-01,유효 추적 비율,TRACKING 제어 주기 / 전체 (1238/1238),100.0,%,통과,results/logs/B0-01/
-8,처리 FPS,B0-01,처리 FPS,/detection 357개 / 41.21 s,8.64,Hz,기록,results/logs/B0-01/
+8,처리 FPS,B0-01,처리 FPS,/detection 356 간격 (357개) / 41.21 s,8.64,Hz,기록,results/logs/B0-01/
 8,수평 RMSE,B0-01,√mean(ex²),검출·TRACKING 358/358 프레임 (정지 목표),0.0003,정규화,기록,results/logs/B0-01/
 8,수평 RMSE (움직이는 목표 · 참고),BAG-OK,√mean(ex²),146/146 프레임,0.216,정규화,참고,results/logs/BAG-OK/
 8,검출률,BAG-OK,올바른 검출 / 목표가 보이는 평가 프레임,30/30 (권혁무·정수용 육안),100.0,%,통과,results/images/detection_30/
-8,배경 오검출,BAG-LOST,목표 없는 평가 프레임의 잘못된 검출,0/19 (권혁무·정수용 육안),0,회,통과,results/images/no_target_19/
+8,배경 오검출,BAG-LOST,목표 없는 평가 프레임의 잘못된 검출,목표 없는 20장 중 영상·검출 시각 차 ≤33ms 10장 (권혁무·정수용 육안),0/10,회,통과,results/images/no_target_20/
 9,소실·복귀 bag (M-BAGL),BAG-LOST,재등장 → TRACKING,3회,0.355~0.387,s,통과,results/logs/BAG-LOST/
 9,결과 재분석 (M-RE1),B0-01,bag 재계산 = 성능표,FAULT·SEARCHING·비율·FPS·RMSE,일치,-,통과,results/logs/B0-01/
 9,입력 재처리 (M-RE2),RAW-01·RE2-01,같은 촬영 시각 검출 일치,172/172 프레임,100.0,%,통과,results/logs/RE2-01/
