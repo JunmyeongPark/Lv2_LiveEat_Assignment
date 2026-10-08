@@ -111,7 +111,9 @@ WheelCommand BaseKinematics::step(double v, double w, bool fresh, double dt)
   return out;
 }
 
-BaseOdom BaseKinematics::odom(double wheel_vel_l, double wheel_vel_r, double pos_l, double pos_r)
+BaseOdom BaseKinematics::odom(
+  double wheel_vel_l, double wheel_vel_r, double pos_l, double pos_r,
+  std::optional<double> imu_yaw)
 {
   BaseOdom out;
 
@@ -136,7 +138,12 @@ BaseOdom BaseKinematics::odom(double wheel_vel_l, double wheel_vel_r, double pos
   dyaw *= s;
 
   // 몸 방향: 누적한 뒤 [-π, π] 로 (IMU yaw 와 같은 형식)
-  yaw_total_ += dyaw;
+  //   IMU 가 있으면 IMU 값으로 맞춤, 없으면 마지막 값에서 엔코더 회전만 더해 이어감
+  if (p_.yaw_follow_imu && imu_yaw) {
+    yaw_total_ = *imu_yaw;
+  } else {
+    yaw_total_ += dyaw;
+  }
   out.yaw = std::atan2(std::sin(yaw_total_), std::cos(yaw_total_));
 
   prev_pos_l_ = pos_l;

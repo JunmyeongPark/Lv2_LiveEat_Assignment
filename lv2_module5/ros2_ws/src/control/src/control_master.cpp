@@ -2,6 +2,7 @@
 //
 // [입력 토픽]  (planning_master 에서 옴)
 //   /planning/cmd_vel      geometry_msgs/Twist          linear.x = v [m/s], angular.z = ω [rad/s]
+//                                                       (NaN·무한대면 명령 취소 → 감속 정지)
 //   /planning/arm_command  std_msgs/Float32MultiArray   [yaw, pitch] [deg]
 // [출력 토픽]
 //   (planning_master 로)
@@ -11,7 +12,8 @@
 //                                              yaw 형식은 /control/imu 와 같게 맞춤
 //                     (IMU · 엔코더 중 어느 yaw 를 쓸지는 판단부에서 정함)
 //   /control/imu_yaw_deg   std_msgs/Float32    IMU yaw [deg] (-180 ~ 180)   ← 판단부가 deg 로 바로 쓰도록
-//   /control/odom_yaw_deg  std_msgs/Float32    엔코더 yaw [deg] (-180 ~ 180, 시작 0)
+//   /control/odom_yaw_deg  std_msgs/Float32    엔코더 yaw [deg] (-180 ~ 180). IMU 가 있으면 IMU 에 맞추고,
+//                                              끊기면 마지막 값에서 엔코더 회전만 더해 이어감 (yaw_follow_imu)
 //   (디버깅 · bag 기록용 원본)
 //   /control/joint_states sensor_msgs/JointState   wheel_left_joint, wheel_right_joint,
 //                                                  arm_yaw_joint, arm_pitch_joint
@@ -23,6 +25,9 @@
 //   OpenCR 이 ERROR 면 나머지 셋은 STALE (패킷이 없으니 상태를 모름)
 // [실행]
 //   ros2 run control control_master --ros-args --params-file lv2_module5/config/control.yaml
+// [실행 중 변경] (나머지 파라미터는 시작할 때만 읽음)
+//   ros2 param set /control_master motor_enable false   모터에 정지만 보냄
+//   ros2 param set /control_master imu_ignore true      IMU 끊김과 똑같이 처리 (실험용, tools/inject)
 
 #include <chrono>
 #include <cmath>
@@ -74,6 +79,7 @@ public:
     state_timeout_ = declare_parameter("state_timeout_s", 0.5);  // OpenCR 상태 패킷 끊김 판정
     health_rate_hz_ = declare_parameter("health_rate_hz", 10.0);
     motor_enable_ = declare_parameter("motor_enable", true);  // false: 상태는 받고, 모터에는 정지만 보냄
+    imu_ignore_ = declare_parameter("imu_ignore", false);     // true: IMU 가 끊긴 것처럼 처리 (실험용)
     const auto log_dir = declare_parameter("log_dir", std::string("results/logs"));  // "" 이면 기록 안 함
 
     // ---------- OpenCR 연결 ----------
@@ -84,6 +90,16 @@ public:
     // ---------- 토픽 ----------
     cmd_vel_sub_ = create_subscription<geometry_msgs::msg::Twist>(
       "/planning/cmd_vel", 10, [this](geometry_msgs::msg::Twist::ConstSharedPtr m) {
+        // 한 축이라도 NaN·무한대면 명령 전체 무효 + 이전 명령 취소 → 명령 끊김과 같이 감속 정지
+        //   (clamp 는 NaN 을 +최대값으로 바꾸므로 여기서 막아야 함). 다음 정상 명령이 오면 다시 움직임
+        if (!std::isfinite(m->linear.x) || !std::isfinite(m->angular.z)) {
+          cmd_v_ = cmd_w_ = 0.0;
+          cmd_vel_t_.reset();
+          RCLCPP_WARN_THROTTLE(
+            get_logger(), *get_clock(), 2000, "/planning/cmd_vel 비정상 값 (v=%f, w=%f) → 무시하고 감속 정지",
+            m->linear.x, m->angular.z);
+          return;
+        }
         cmd_v_ = m->linear.x;
         cmd_w_ = m->angular.z;
         cmd_vel_t_ = now();
@@ -119,6 +135,28 @@ public:
     // 진단은 제어 루프와 별도 타이머: 시리얼이 죽어도 계속 발행한다.
     health_timer_ = create_wall_timer(
       std::chrono::duration<double>(1.0 / health_rate_hz_), [this]() {publish_health();});
+    // 실행 중 변경 (ros2 param set, tools/inject/fault_injector.py): motor_enable, imu_ignore 만 받는다.
+    //   다른 값은 시작할 때만 읽으므로 실행 중 변경을 거부한다 (바꿔도 반영 안 되는 것을 막음).
+    //   모든 declare_parameter 뒤에 등록해야 시작할 때 읽는 값까지 막지 않는다.
+    param_cb_ = add_on_set_parameters_callback(
+      [this](const std::vector<rclcpp::Parameter> & params) {
+        rcl_interfaces::msg::SetParametersResult r;
+        r.successful = true;
+        for (const auto & p : params) {
+          if ((p.get_name() != "motor_enable" && p.get_name() != "imu_ignore") ||
+            p.get_type() != rclcpp::ParameterType::PARAMETER_BOOL)
+          {
+            r.successful = false;
+            r.reason = p.get_name() + " 는 실행 중 변경 불가 (motor_enable, imu_ignore 만 bool 로 가능)";
+            return r;
+          }
+        }
+        for (const auto & p : params) {
+          (p.get_name() == "motor_enable" ? motor_enable_ : imu_ignore_) = p.as_bool();
+          RCLCPP_WARN(get_logger(), "%s = %s (실행 중 변경)", p.get_name().c_str(), p.as_bool() ? "true" : "false");
+        }
+        return r;
+      });
     RCLCPP_INFO(
       get_logger(), "포트=%s, 주기=%.0fHz, 모터=%s, 기록=%s", port_.c_str(), rate_hz_,
       motor_enable_ ? "켜짐" : "꺼짐", log_path_.empty() ? "없음" : log_path_.c_str());
@@ -150,6 +188,7 @@ private:
     p.max_acc_w = declare_parameter("max_acc_w", p.max_acc_w);
     p.right_wheel_gain = declare_parameter("right_wheel_gain", p.right_wheel_gain);
     p.slip_correction = declare_parameter("slip_correction", p.slip_correction);
+    p.yaw_follow_imu = declare_parameter("yaw_follow_imu", p.yaw_follow_imu);
     return p;
   }
 
@@ -205,7 +244,11 @@ private:
       return;
     }
     const bool fresh = cmd_vel_t_ && (t - *cmd_vel_t_).seconds() < cmd_timeout_;
-    wheel_ = base_.step(cmd_v_, cmd_w_, fresh, dt);              // ②
+    if (!motor_enable_) {
+      // 모터 꺼짐: 목표 속도도 0 에 묶어 둠 → 실행 중 다시 켜면 0 부터 가속 (꺼진 동안 쌓인 목표로 튀지 않게)
+      base_.stop();
+    }
+    wheel_ = base_.step(cmd_v_, cmd_w_, fresh && motor_enable_, dt);   // ②
     const double arm_age = arm_goal_t_ ? (t - *arm_goal_t_).seconds() : -1.0;
     const bool arm_fresh = arm_goal_ && arm_age >= 0.0 && arm_age < arm_cmd_timeout_;
     const ArmAngles measured{state_->arm_pos[0], state_->arm_pos[1]};
@@ -256,7 +299,8 @@ private:
     const auto stamp = now();
 
     // IMU: 펌웨어가 보정 전/실패 시 NaN 을 보낸다. 그때는 발행하지 않아 planning 이 엔코더 heading 을 쓰게 한다.
-    const bool imu_valid = std::isfinite(st->imu_yaw) && std::isfinite(st->imu_gyro_z);
+    //   imu_ignore(실험용)면 값이 정상이어도 끊긴 것과 똑같이 처리한다. CSV 의 imu_yaw 는 원본 그대로 남김(정답 비교용)
+    const bool imu_valid = !imu_ignore_ && std::isfinite(st->imu_yaw) && std::isfinite(st->imu_gyro_z);
     imu_valid_ = imu_valid;
     imu_ever_valid_ = imu_ever_valid_ || imu_valid;
     if (imu_valid) {
@@ -286,7 +330,11 @@ private:
       return;
     }
 
-    const BaseOdom o = base_.odom(st->wheel_vel[0], st->wheel_vel[1], st->wheel_pos[0], st->wheel_pos[1]);
+    // IMU 를 쓸 수 있으면 엔코더 yaw 를 IMU 에 맞추고, 아니면 마지막 값에서 엔코더로 이어감
+    const std::optional<double> imu_yaw =
+      imu_valid ? std::optional<double>(st->imu_yaw) : std::nullopt;
+    const BaseOdom o = base_.odom(
+      st->wheel_vel[0], st->wheel_vel[1], st->wheel_pos[0], st->wheel_pos[1], imu_yaw);
     odom_ = o;
     nav_msgs::msg::Odometry odom;
     odom.header.stamp = stamp;
@@ -373,7 +421,8 @@ private:
     // IMU NaN 은 못 쓰는 값 → ERROR (보정 중이든 실패든). planning 은 엔코더 heading 으로 대체.
     imu_diag_pub_->publish(imu_valid_ ?
       diag("imu", DiagStatus::OK, "ok") :
-      diag("imu", DiagStatus::ERROR, imu_ever_valid_ ? "nan (lost)" : "calibrating"));
+      diag("imu", DiagStatus::ERROR,
+        imu_ignore_ ? "ignored (imu_ignore)" : imu_ever_valid_ ? "nan (lost)" : "calibrating"));
   }
 
   // 설정
@@ -385,6 +434,7 @@ private:
   double cmd_timeout_;
   double arm_cmd_timeout_;
   bool motor_enable_;
+  bool imu_ignore_;
 
   // 계산 모듈
   BaseKinematics base_;
@@ -418,6 +468,7 @@ private:
   rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr odom_yaw_deg_pub_;
   rclcpp::Publisher<DiagStatus>::SharedPtr mcu_diag_pub_, arm_diag_pub_, wheel_diag_pub_, imu_diag_pub_;
   rclcpp::TimerBase::SharedPtr timer_, health_timer_;
+  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr param_cb_;
 
   // 기록
   std::ofstream log_;
