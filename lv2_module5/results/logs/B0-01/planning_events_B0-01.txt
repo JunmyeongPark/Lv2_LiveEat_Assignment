@@ -1,0 +1,6 @@
+# planning events 2026-10-08 03:48:22
+03:48:22     START -> FAULT     reason=mcu_diag_recovering
+03:48:22     FAULT -> FAULT     reason=camera_diag_recovering
+03:48:22     FAULT -> IDLE      reason=recovered_from:mcu_diag_recovering
+03:48:24      IDLE -> IDLE      reason=ok
+03:48:25      IDLE -> TRACKING  reason=ok

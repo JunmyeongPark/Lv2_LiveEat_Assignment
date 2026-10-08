@@ -1,0 +1,7 @@
+t,t_rel,from_state,to_state,from_reason,to_reason
+1791350667.6571405,0.0315,,idle,,recovered_from:detection_timeout
+1791350668.6171093,0.9915,idle,idle,recovered_from:detection_timeout,ok
+1791350670.253459,2.6279,idle,tracking,ok,ok
+1791350678.7857647,11.1602,tracking,searching,ok,ok
+1791350686.9254339,19.2998,searching,tracking,ok,ok
+1791350690.724072,23.0985,tracking,searching,ok,ok

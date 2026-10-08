@@ -1,0 +1,5 @@
+t,t_rel,from_state,to_state,from_reason,to_reason
+1791350963.7883782,0.004,,idle,,ok
+1791350965.120407,1.336,idle,tracking,ok,ok
+1791350972.9215827,9.1372,tracking,searching,ok,ok
+1791350981.0521555,17.2677,searching,tracking,ok,ok

@@ -1,0 +1,22 @@
+{
+  "run_dir": "R1-02",
+  "bag_start_epoch": 1791350667.625609,
+  "duration_s": 26.311030864715576,
+  "n_events": 6,
+  "transitions": [
+    "->idle@0.032s(recovered_from:detection_timeout)",
+    "idle->idle@0.992s(ok)",
+    "idle->tracking@2.628s(ok)",
+    "tracking->searching@11.160s(ok)",
+    "searching->tracking@19.300s(ok)",
+    "tracking->searching@23.098s(ok)"
+  ],
+  "first_z0_epoch": 1791350678.4355357,
+  "reappear_epoch": 1791350686.4920347,
+  "first_zero_cmd_after_miss_s": 0.014483451843261719,
+  "to_searching_after_miss_s": 0.35022902488708496,
+  "recover_time_s": 0.4333992004394531,
+  "recover_within_3s": true,
+  "max_abs_cmd_w_during_occlusion": 0.8,
+  "occlusion_duration_s": 8.056499004364014
+}

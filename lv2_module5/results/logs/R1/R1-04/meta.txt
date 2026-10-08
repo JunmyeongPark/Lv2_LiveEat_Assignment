@@ -1,0 +1,4 @@
+run_id=R1-04
+start_epoch=1791350893.933658333
+git_commit=c10c9b1(로봇에 git 없음, code_fingerprint.txt의 sha256이 c10c9b1과 일치 확인)
+bag_topics=detection,tracking_status,planning/cmd_vel,planning/arm_command,control/joint_states,control/imu,control/odom_yaw_deg

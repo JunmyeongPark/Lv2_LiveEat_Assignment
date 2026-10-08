@@ -1,0 +1,4 @@
+run_id=RAW-01
+start_epoch=1791438383.827413929
+git_commit=로봇에 git 없음, code_fingerprint.txt 의 sha256 참고
+bag_topics=camera color + aligned_depth image_raw, detection, tracking_status, planning/*, control/*, perception/camera_health, inject/*
