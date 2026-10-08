@@ -20,6 +20,7 @@ control_master:
     max_acc_w: 3.0            # [rad/s^2]
     right_wheel_gain: 1.0     # 오른쪽 바퀴 명령 배율 (직진 보정, 1.0 = 보정 없음)
     slip_correction: true     # 회전 미끄러짐 보정 (10/6 솜털 바닥 실측 표). 다른 바닥이면 다시 측정
+    yaw_follow_imu: true      # IMU 있으면 엔코더 yaw 를 IMU 에 맞춤, 끊기면 그 값에서 엔코더로 이어감
 
     # 팔 (XM430-W350-T, Position 모드) — 펌웨어 motor_driver 의 한계와 같게 맞출 것
     arm_yaw_limit_deg: 120.0  # ± (10/5 실측: ±120° 까지 선 꼬임 없음)

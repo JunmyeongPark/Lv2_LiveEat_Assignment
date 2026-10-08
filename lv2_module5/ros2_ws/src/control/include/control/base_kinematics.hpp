@@ -5,6 +5,8 @@
 //   속도 자체는 OpenCR 쪽 모터 PID 가 맞추고, 경로 오차는 상위(판단)가 실시간으로 고친다
 #pragma once
 
+#include <optional>
+
 namespace control
 {
 
@@ -19,6 +21,7 @@ struct BaseParams
   double max_acc_w = 3.0;           // 회전 가속도 한계 [rad/s^2]
   double right_wheel_gain = 1.0;    // 오른쪽 바퀴 명령 배율 (직진 보정, 1.0 = 보정 없음)
   bool slip_correction = true;      // 회전 미끄러짐 보정 k(v, ω) 사용 (base_kinematics.cpp 의 표)
+  bool yaw_follow_imu = true;       // IMU 가 있으면 엔코더 yaw 를 IMU 에 맞추고, 끊기면 그 값에서 엔코더로 이어감
 };
 
 // 한 주기 결과 (명령 + 기록용 중간값)
@@ -29,12 +32,13 @@ struct WheelCommand
 };
 
 // 엔코더(바퀴)로 계산한 몸통 상태
-//   IMU 는 여기서 쓰지 않고 /control/imu 로 따로 보낸다. 어느 쪽을 믿을지는 판단부가 정함
+//   yaw: IMU 가 있으면 IMU 값에 맞춤 (yaw_follow_imu), 끊기면 마지막 값에서 엔코더 회전만 더해 유지
+//   IMU 는 /control/imu 로도 따로 보낸다. 어느 쪽을 믿을지는 판단부가 정함
 struct BaseOdom
 {
-  double v = 0.0;     // 몸 직진속도, 앞 +(m/s)
-  double w = 0.0;     // 몸 회전속도, 반시계 +(rad/s)
-  double yaw = 0.0;   // 몸 방향(rad), [-π, π], 노드 시작 시 0
+  double v = 0.0;        // 몸 직진속도, 앞 +(m/s)
+  double w = 0.0;        // 몸 회전속도, 반시계 +(rad/s)
+  double yaw = 0.0;      // 몸 방향(rad), [-π, π]. IMU 로 보정한 값 (/control/odom_yaw_deg)
 };
 
 
@@ -49,7 +53,10 @@ public:
   WheelCommand step(double v, double w, bool fresh, double dt);
 
   // wheel_vel_l/r: 바퀴 속도 [rad/s], pos_l/r: 바퀴 누적 각도 [rad]
-  BaseOdom odom(double wheel_vel_l, double wheel_vel_r, double pos_l, double pos_r);
+  // imu_yaw: 쓸 수 있는 IMU yaw [rad] (없으면 nullopt → 엔코더로 이어감)
+  BaseOdom odom(
+    double wheel_vel_l, double wheel_vel_r, double pos_l, double pos_r,
+    std::optional<double> imu_yaw = std::nullopt);
 
 private:
   double slip_scale(double v, double w) const;   // 회전 미끄러짐 배율 (base_kinematics.cpp)
@@ -58,7 +65,7 @@ private:
   double v_ref_ = 0.0, w_ref_ = 0.0;
   bool odom_started_ = false;
   double prev_pos_l_ = 0.0, prev_pos_r_ = 0.0;
-  double yaw_total_ = 0.0;   // 엔코더로 누적한 yaw (±π 에서 안 끊김)
+  double yaw_total_ = 0.0;   // IMU 로 보정한 yaw (끊기면 엔코더로 누적, ±π 에서 안 끊김)
 };
 
 }  // namespace control

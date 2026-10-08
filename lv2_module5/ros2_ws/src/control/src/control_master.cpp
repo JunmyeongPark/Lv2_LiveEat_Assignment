@@ -2,6 +2,7 @@
 //
 // [입력 토픽]  (planning_master 에서 옴)
 //   /planning/cmd_vel      geometry_msgs/Twist          linear.x = v [m/s], angular.z = ω [rad/s]
+//                                                       (NaN·무한대면 명령 취소 → 감속 정지)
 //   /planning/arm_command  std_msgs/Float32MultiArray   [yaw, pitch] [deg]
 // [출력 토픽]
 //   (planning_master 로)
@@ -11,7 +12,8 @@
 //                                              yaw 형식은 /control/imu 와 같게 맞춤
 //                     (IMU · 엔코더 중 어느 yaw 를 쓸지는 판단부에서 정함)
 //   /control/imu_yaw_deg   std_msgs/Float32    IMU yaw [deg] (-180 ~ 180)   ← 판단부가 deg 로 바로 쓰도록
-//   /control/odom_yaw_deg  std_msgs/Float32    엔코더 yaw [deg] (-180 ~ 180, 시작 0)
+//   /control/odom_yaw_deg  std_msgs/Float32    엔코더 yaw [deg] (-180 ~ 180). IMU 가 있으면 IMU 에 맞추고,
+//                                              끊기면 마지막 값에서 엔코더 회전만 더해 이어감 (yaw_follow_imu)
 //   (디버깅 · bag 기록용 원본)
 //   /control/joint_states sensor_msgs/JointState   wheel_left_joint, wheel_right_joint,
 //                                                  arm_yaw_joint, arm_pitch_joint
@@ -84,6 +86,16 @@ public:
     // ---------- 토픽 ----------
     cmd_vel_sub_ = create_subscription<geometry_msgs::msg::Twist>(
       "/planning/cmd_vel", 10, [this](geometry_msgs::msg::Twist::ConstSharedPtr m) {
+        // 한 축이라도 NaN·무한대면 명령 전체 무효 + 이전 명령 취소 → 명령 끊김과 같이 감속 정지
+        //   (clamp 는 NaN 을 +최대값으로 바꾸므로 여기서 막아야 함). 다음 정상 명령이 오면 다시 움직임
+        if (!std::isfinite(m->linear.x) || !std::isfinite(m->angular.z)) {
+          cmd_v_ = cmd_w_ = 0.0;
+          cmd_vel_t_.reset();
+          RCLCPP_WARN_THROTTLE(
+            get_logger(), *get_clock(), 2000, "/planning/cmd_vel 비정상 값 (v=%f, w=%f) → 무시하고 감속 정지",
+            m->linear.x, m->angular.z);
+          return;
+        }
         cmd_v_ = m->linear.x;
         cmd_w_ = m->angular.z;
         cmd_vel_t_ = now();
@@ -150,6 +162,7 @@ private:
     p.max_acc_w = declare_parameter("max_acc_w", p.max_acc_w);
     p.right_wheel_gain = declare_parameter("right_wheel_gain", p.right_wheel_gain);
     p.slip_correction = declare_parameter("slip_correction", p.slip_correction);
+    p.yaw_follow_imu = declare_parameter("yaw_follow_imu", p.yaw_follow_imu);
     return p;
   }
 
@@ -286,7 +299,11 @@ private:
       return;
     }
 
-    const BaseOdom o = base_.odom(st->wheel_vel[0], st->wheel_vel[1], st->wheel_pos[0], st->wheel_pos[1]);
+    // IMU 를 쓸 수 있으면 엔코더 yaw 를 IMU 에 맞추고, 아니면 마지막 값에서 엔코더로 이어감
+    const std::optional<double> imu_yaw =
+      imu_valid ? std::optional<double>(st->imu_yaw) : std::nullopt;
+    const BaseOdom o = base_.odom(
+      st->wheel_vel[0], st->wheel_vel[1], st->wheel_pos[0], st->wheel_pos[1], imu_yaw);
     odom_ = o;
     nav_msgs::msg::Odometry odom;
     odom.header.stamp = stamp;

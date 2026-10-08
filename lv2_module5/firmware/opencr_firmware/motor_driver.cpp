@@ -73,7 +73,7 @@ void setup_arm(int i, uint8_t id, float lo, float hi)
   dxl.torqueOn(id);
 }
 
-// 속도·위치를 한 번에 읽기 (실패하면 false, 이전 값 유지)
+// 속도·위치를 한 번에 읽기 (실패하면 false → motor_read 가 NaN 으로 표시)
 bool read_vel_pos(uint8_t id, int32_t &vel, int32_t &pos)
 {
   uint8_t buf[8];
