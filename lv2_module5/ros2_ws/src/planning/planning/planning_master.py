@@ -1,15 +1,18 @@
 from geometry_msgs.msg import PointStamped, Twist
+from rcl_interfaces.msg import ParameterDescriptor
 from sensor_msgs.msg import Imu, JointState
 from std_msgs.msg import Float32, Float32MultiArray, String
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+import csv
 import math
 import os
 import time
 from collections import deque
 from planning.health_monitor import SENSORS, HealthMonitor
 from planning.dashboard import StatusDashboard
+import csv # csv 파일 기록용
 
 # 상태: idle / tracking / searching / lost / fault
 #   lost  = 목표 소실 (720° 탐색 실패) → 팔 nominal 복귀 → idle
@@ -208,7 +211,25 @@ class PlanningMaster(Node):
         if event_log:
             os.makedirs(os.path.dirname(os.path.abspath(event_log)), exist_ok=True)
             self.event_log = open(event_log, 'a', buffering=1)   # 줄 단위로 바로 기록
-            self.event_log.write(f'# planning events {time.strftime("%Y-%m-%d %H:%M:%S")}\n')
+            self.event_log.write(f'# planning events {time.strftime("%Y-%m-%d %H:%M:%S")}\n')   
+        # 발제 권장 열 CSV ('' 이면 안 남김). 매 제어 주기마다 한 줄
+        self.csv_file = None
+        self.csv_writer = None
+        self.frame_id = 0
+        # run_id:=01 처럼 숫자로 줘도 죽지 않게 타입을 고정하지 않고 받아서 문자열로 바꾼다
+        self.run_id = str(self.declare_parameter(
+            'run_id', 'run', ParameterDescriptor(dynamic_typing=True)).value)
+        csv_log = str(param('csv_log', ''))
+        if csv_log:
+            os.makedirs(os.path.dirname(os.path.abspath(csv_log)), exist_ok=True)
+            need_header = not os.path.exists(csv_log) or os.path.getsize(csv_log) == 0
+            self.csv_file = open(csv_log, 'a', newline='', buffering=1)
+            self.csv_writer = csv.writer(self.csv_file)
+            if need_header:
+                self.csv_writer.writerow([
+                    'run_id', 'time_s', 'frame_id', 'detected', 'ex', 'ey', 'depth_m',
+                    'state', 'reason', 'miss_streak', 'detect_streak', 'heading_source',
+                    'cmd_v', 'cmd_w', 'arm_pan_cmd', 'arm_tilt_cmd', 'command_unit'])
         # 터미널 대시보드 (시뮬 fake_planning 과 같은 화면)
         self.dashboard_ui = StatusDashboard(self) if bool(param('dashboard', False)) else None
 
@@ -239,6 +260,7 @@ class PlanningMaster(Node):
 
     def cam_cb(self, msg):  # PointStamped
         now = self._now_s()
+        self.frame_id += 1
         if self.last_cam_time is None or not 0 <= now - self.last_cam_time <= self.detection_timeout_s:
             self.detect_streak = 0
         self.cur_bbox_error_x = msg.point.x
@@ -701,9 +723,22 @@ class PlanningMaster(Node):
         self.calc_cur_object_pos()
         self.state_machine_run()
         self._publish()
+        self._log_csv()
         self._log_transition()
         if self.dashboard_ui is not None:
             self.dashboard_ui.on_cycle()
+
+    def _log_csv(self):
+        if self.csv_writer is None:
+            return
+        detected = int(self.camera_input_valid and self.cur_depth > 0.0)
+        self.csv_writer.writerow([
+            self.run_id, f'{self._now_s():.4f}', self.frame_id, detected,
+            f'{self.cur_bbox_error_x:.4f}', f'{self.cur_bbox_error_y:.4f}', f'{self.cur_depth:.3f}',
+            self.state, self.status_reason(), self.miss_streak, self.detect_streak, self.heading_source,
+            f'{self.cmd_vel_msg.linear.x:.4f}', f'{self.cmd_vel_msg.angular.z:.4f}',
+            f'{self.tgt_arm_pose[0]:.2f}', f'{self.tgt_arm_pose[1]:.2f}',
+            'v:m/s;w:rad/s;arm:deg'])
 
     def _log_transition(self):
         key = (self.state, self.status_reason())

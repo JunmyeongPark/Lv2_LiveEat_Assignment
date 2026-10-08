@@ -10,6 +10,8 @@ ros2 launch lv2_module5/launch/bringup.launch.py planning:=false
     # planning 만 빼고 실행 (planning 을 다른 터미널에서 따로 돌릴 때)
 ros2 launch lv2_module5/launch/bringup.launch.py pin_cpu:=true
     # 코어 1~3 은 perception(NCNN 3스레드) 전용, 코어 0 에 RealSense · control · planning
+ros2 launch lv2_module5/launch/bringup.launch.py num_threads:=4
+    # NCNN 스레드 수 직접 지정 (perception.yaml 기본 2). 2/4 비교는 planning 대시보드에서 확인
 """
 import os
 
@@ -39,7 +41,8 @@ def launch_setup(context):
             PythonLaunchDescriptionSource(os.path.join(LAUNCH_DIR, 'perception.launch.py')),
             launch_arguments={'camera': LaunchConfiguration('camera'), 'output': out,
                               'camera_cpus': '0' if pin else '',
-                              'perception_cpus': '1-3' if pin else ''}.items()),
+                              'perception_cpus': '1-3' if pin else '',
+                              'num_threads': LaunchConfiguration('num_threads')}.items()),
         Node(package='control', executable='control_master', name='control_master',
              output=out, prefix=core0, parameters=[os.path.join(CONFIG_DIR, 'control.yaml'), {
                  'port': LaunchConfiguration('port'),
@@ -57,6 +60,8 @@ def launch_setup(context):
             parameters=[os.path.join(CONFIG_DIR, 'planning.yaml'), {
                 'dashboard': dashboard,
                 'event_log': LaunchConfiguration('event_log'),
+                'csv_log': LaunchConfiguration('csv_log'),
+                'run_id': ParameterValue(LaunchConfiguration('run_id'), value_type=str),   # '01' 같은 숫자도 문자열로
             }],
             **planning_kwargs))
     return actions
@@ -70,6 +75,9 @@ def generate_launch_description():
         DeclareLaunchArgument('planning', default_value='true'),     # false: planning 만 따로 실행할 때
         DeclareLaunchArgument('dashboard', default_value='false'),   # true: 화면에 planning 대시보드만
         DeclareLaunchArgument('event_log', default_value=''),        # 상태 전이 기록 파일 ('' 이면 안 남김)
+        DeclareLaunchArgument('csv_log', default_value=''),          # 발제 열 CSV 경로 ('' 이면 안 남김)
+        DeclareLaunchArgument('run_id', default_value='run'),        # CSV 의 run_id 열
         DeclareLaunchArgument('pin_cpu', default_value='false'),     # true: 코어 1~3 perception 전용
+        DeclareLaunchArgument('num_threads', default_value=''),      # NCNN 스레드 수 ('' 이면 perception.yaml)
         OpaqueFunction(function=launch_setup),
     ])
