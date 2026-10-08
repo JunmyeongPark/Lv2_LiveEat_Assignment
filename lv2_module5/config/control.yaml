@@ -7,7 +7,8 @@ control_master:
     baud: 1000000
     cmd_timeout_s: 0.3        # 이 시간 동안 /cmd_vel 없으면 바퀴 정지
     arm_cmd_timeout_s: 0.3    # 팔 목표 수신 중단 시 이전 목표 취소, 측정 자세 유지
-    motor_enable: true        # false: 상태는 받고 모터에는 정지만 보냄 (bag 재생 · 연결 시험)
+    motor_enable: true        # false: 상태는 받고 모터에는 정지만 보냄 (bag 재생 · 연결 시험). 실행 중 변경 가능
+    imu_ignore: false         # true: IMU 가 끊긴 것처럼 처리 (실험용, tools/inject). 실행 중 변경 가능
     log_dir: results/logs     # "" 이면 CSV 기록 안 함
 
     # 바퀴 (TurtleBot3 Waffle Pi, XM430-W210-T)
