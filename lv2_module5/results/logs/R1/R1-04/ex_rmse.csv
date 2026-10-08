@@ -1,0 +1,3 @@
+run_id,window,start_s,end_s,n,rmse,mean,max_abs,note
+R1-04,all,,,63,0.2819,0.0181,0.9594,bag 전체의 z>0 프레임
+R1-04,pre,7.3,13.8,36,0.2617,0.0131,0.8422,마지막 TRACKING 진입 ~ 가림 시작

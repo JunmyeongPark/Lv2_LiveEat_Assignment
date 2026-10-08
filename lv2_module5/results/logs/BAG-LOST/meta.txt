@@ -1,0 +1,4 @@
+run_id=BAG-LOST
+start_epoch=1791437451.609300837
+git_commit=로봇에 git 없음, code_fingerprint.txt 의 sha256 참고
+bag_topics=camera/color/jpeg(5fps), detection, tracking_status, planning/*, control/*, perception/camera_health, inject/*

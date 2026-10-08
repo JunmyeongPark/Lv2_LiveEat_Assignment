@@ -1,0 +1,110 @@
+rosbag2_bagfile_information:
+  version: 9
+  storage_identifier: mcap
+  duration:
+    nanoseconds: 20761499190
+  starting_time:
+    nanoseconds_since_epoch: 1791438388241307015
+  message_count: 1457
+  topics_with_message_count:
+    - topic_metadata:
+        name: /camera/camera/aligned_depth_to_color/image_raw
+        type: sensor_msgs/msg/Image
+        serialization_format: cdr
+        offered_qos_profiles:
+          - history: keep_last
+            depth: 1
+            reliability: reliable
+            durability: transient_local
+            deadline:
+              sec: 9223372036
+              nsec: 854775807
+            lifespan:
+              sec: 9223372036
+              nsec: 854775807
+            liveliness: automatic
+            liveliness_lease_duration:
+              sec: 9223372036
+              nsec: 854775807
+            avoid_ros_namespace_conventions: false
+        type_description_hash: RIHS01_d31d41a9a4c4bc8eae9be757b0beed306564f7526c88ea6a4588fb9582527d47
+      message_count: 543
+    - topic_metadata:
+        name: /camera/camera/color/image_raw
+        type: sensor_msgs/msg/Image
+        serialization_format: cdr
+        offered_qos_profiles:
+          - history: keep_last
+            depth: 1
+            reliability: reliable
+            durability: transient_local
+            deadline:
+              sec: 9223372036
+              nsec: 854775807
+            lifespan:
+              sec: 9223372036
+              nsec: 854775807
+            liveliness: automatic
+            liveliness_lease_duration:
+              sec: 9223372036
+              nsec: 854775807
+            avoid_ros_namespace_conventions: false
+        type_description_hash: RIHS01_d31d41a9a4c4bc8eae9be757b0beed306564f7526c88ea6a4588fb9582527d47
+      message_count: 542
+    - topic_metadata:
+        name: /detection
+        type: geometry_msgs/msg/PointStamped
+        serialization_format: cdr
+        offered_qos_profiles:
+          - history: keep_last
+            depth: 1
+            reliability: best_effort
+            durability: volatile
+            deadline:
+              sec: 9223372036
+              nsec: 854775807
+            lifespan:
+              sec: 9223372036
+              nsec: 854775807
+            liveliness: automatic
+            liveliness_lease_duration:
+              sec: 9223372036
+              nsec: 854775807
+            avoid_ros_namespace_conventions: false
+        type_description_hash: RIHS01_4c0296af86e01e562e9e0405d138a01537247580076c58ea38d7923ac1045897
+      message_count: 187
+    - topic_metadata:
+        name: /perception/camera_health
+        type: diagnostic_msgs/msg/DiagnosticStatus
+        serialization_format: cdr
+        offered_qos_profiles:
+          - history: keep_last
+            depth: 10
+            reliability: reliable
+            durability: volatile
+            deadline:
+              sec: 9223372036
+              nsec: 854775807
+            lifespan:
+              sec: 9223372036
+              nsec: 854775807
+            liveliness: automatic
+            liveliness_lease_duration:
+              sec: 9223372036
+              nsec: 854775807
+            avoid_ros_namespace_conventions: false
+        type_description_hash: RIHS01_b0e3e692ea2d54a8af2f4ef1930e81556a2db55216b771f8a7d2724ed47bf0e4
+      message_count: 185
+  compression_format: ""
+  compression_mode: ""
+  relative_file_paths:
+    - 0_bag_2026_10_08-05_46_28.mcap
+  files:
+    - path: 0_bag_2026_10_08-05_46_28.mcap
+      starting_time:
+        nanoseconds_since_epoch: 1791438388241307015
+      duration:
+        nanoseconds: 20761499190
+      message_count: 1457
+  custom_data: ~
+  ros_distro: lyrical

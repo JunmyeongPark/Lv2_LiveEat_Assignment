@@ -1,0 +1,4 @@
+run_id=B0-01
+start_epoch=1791431313.169161612
+git_commit=로봇에 git 없음, code_fingerprint.txt 의 sha256 참고
+bag_topics=detection,tracking_status,planning/*,control/*,perception/camera_health,inject/*

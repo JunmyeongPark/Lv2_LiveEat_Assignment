@@ -1,0 +1,44 @@
+rosbag2_bagfile_information:
+  version: 9
+  storage_identifier: mcap
+  duration:
+    nanoseconds: 59997571074
+  starting_time:
+    nanoseconds_since_epoch: 1791438763769423300
+  message_count: 537
+  topics_with_message_count:
+    - topic_metadata:
+        name: /target_replay
+        type: geometry_msgs/msg/PointStamped
+        serialization_format: cdr
+        offered_qos_profiles:
+          - history: keep_last
+            depth: 1
+            reliability: best_effort
+            durability: volatile
+            deadline:
+              sec: 9223372036
+              nsec: 854775807
+            lifespan:
+              sec: 9223372036
+              nsec: 854775807
+            liveliness: automatic
+            liveliness_lease_duration:
+              sec: 9223372036
+              nsec: 854775807
+            avoid_ros_namespace_conventions: false
+        type_description_hash: RIHS01_4c0296af86e01e562e9e0405d138a01537247580076c58ea38d7923ac1045897
+      message_count: 537
+  compression_format: ""
+  compression_mode: ""
+  relative_file_paths:
+    - 0_bag_2026_10_08-05_52_33.mcap
+  files:
+    - path: 0_bag_2026_10_08-05_52_33.mcap
+      starting_time:
+        nanoseconds_since_epoch: 1791438763769423300
+      duration:
+        nanoseconds: 59997571074
+      message_count: 537
+  custom_data: ~
+  ros_distro: lyrical

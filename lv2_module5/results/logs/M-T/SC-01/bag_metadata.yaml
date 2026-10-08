@@ -1,0 +1,330 @@
+rosbag2_bagfile_information:
+  version: 9
+  storage_identifier: mcap
+  duration:
+    nanoseconds: 85412711058
+  starting_time:
+    nanoseconds_since_epoch: 1791428289634209499
+  message_count: 33874
+  topics_with_message_count:
+    - topic_metadata:
+        name: /tracking_status
+        type: std_msgs/msg/String
+        serialization_format: cdr
+        offered_qos_profiles:
+          - history: keep_last
+            depth: 10
+            reliability: reliable
+            durability: volatile
+            deadline:
+              sec: 9223372036
+              nsec: 854775807
+            lifespan:
+              sec: 9223372036
+              nsec: 854775807
+            liveliness: automatic
+            liveliness_lease_duration:
+              sec: 9223372036
+              nsec: 854775807
+            avoid_ros_namespace_conventions: false
+        type_description_hash: RIHS01_df668c740482bbd48fb39d76a70dfd4bd59db1288021743503259e948f6b1a18
+      message_count: 2551
+    - topic_metadata:
+        name: /planning/cmd_vel
+        type: geometry_msgs/msg/Twist
+        serialization_format: cdr
+        offered_qos_profiles:
+          - history: keep_last
+            depth: 10
+            reliability: reliable
+            durability: volatile
+            deadline:
+              sec: 9223372036
+              nsec: 854775807
+            lifespan:
+              sec: 9223372036
+              nsec: 854775807
+            liveliness: automatic
+            liveliness_lease_duration:
+              sec: 9223372036
+              nsec: 854775807
+            avoid_ros_namespace_conventions: false
+        type_description_hash: RIHS01_9c45bf16fe0983d80e3cfe750d6835843d265a9a6c46bd2e609fcddde6fb8d2a
+      message_count: 2554
+    - topic_metadata:
+        name: /control/wheel_motor_health
+        type: diagnostic_msgs/msg/DiagnosticStatus
+        serialization_format: cdr
+        offered_qos_profiles:
+          - history: keep_last
+            depth: 10
+            reliability: reliable
+            durability: volatile
+            deadline:
+              sec: 9223372036
+              nsec: 854775807
+            lifespan:
+              sec: 9223372036
+              nsec: 854775807
+            liveliness: automatic
+            liveliness_lease_duration:
+              sec: 9223372036
+              nsec: 854775807
+            avoid_ros_namespace_conventions: false
+        type_description_hash: RIHS01_b0e3e692ea2d54a8af2f4ef1930e81556a2db55216b771f8a7d2724ed47bf0e4
+      message_count: 855
+    - topic_metadata:
+        name: /detection
+        type: geometry_msgs/msg/PointStamped
+        serialization_format: cdr
+        offered_qos_profiles:
+          - history: keep_last
+            depth: 1
+            reliability: best_effort
+            durability: volatile
+            deadline:
+              sec: 9223372036
+              nsec: 854775807
+            lifespan:
+              sec: 9223372036
+              nsec: 854775807
+            liveliness: automatic
+            liveliness_lease_duration:
+              sec: 9223372036
+              nsec: 854775807
+            avoid_ros_namespace_conventions: false
+        type_description_hash: RIHS01_4c0296af86e01e562e9e0405d138a01537247580076c58ea38d7923ac1045897
+      message_count: 720
+    - topic_metadata:
+        name: /control/opencr
+        type: diagnostic_msgs/msg/DiagnosticStatus
+        serialization_format: cdr
+        offered_qos_profiles:
+          - history: keep_last
+            depth: 10
+            reliability: reliable
+            durability: volatile
+            deadline:
+              sec: 9223372036
+              nsec: 854775807
+            lifespan:
+              sec: 9223372036
+              nsec: 854775807
+            liveliness: automatic
+            liveliness_lease_duration:
+              sec: 9223372036
+              nsec: 854775807
+            avoid_ros_namespace_conventions: false
+        type_description_hash: RIHS01_b0e3e692ea2d54a8af2f4ef1930e81556a2db55216b771f8a7d2724ed47bf0e4
+      message_count: 854
+    - topic_metadata:
+        name: /control/odom
+        type: nav_msgs/msg/Odometry
+        serialization_format: cdr
+        offered_qos_profiles:
+          - history: keep_last
+            depth: 10
+            reliability: reliable
+            durability: volatile
+            deadline:
+              sec: 9223372036
+              nsec: 854775807
+            lifespan:
+              sec: 9223372036
+              nsec: 854775807
+            liveliness: automatic
+            liveliness_lease_duration:
+              sec: 9223372036
+              nsec: 854775807
+            avoid_ros_namespace_conventions: false
+        type_description_hash: RIHS01_3cc97dc7fb7502f8714462c526d369e35b603cfc34d946e3f2eda2766dfec6e0
+      message_count: 4269
+    - topic_metadata:
+        name: /control/joint_states
+        type: sensor_msgs/msg/JointState
+        serialization_format: cdr
+        offered_qos_profiles:
+          - history: keep_last
+            depth: 10
+            reliability: reliable
+            durability: volatile
+            deadline:
+              sec: 9223372036
+              nsec: 854775807
+            lifespan:
+              sec: 9223372036
+              nsec: 854775807
+            liveliness: automatic
+            liveliness_lease_duration:
+              sec: 9223372036
+              nsec: 854775807
+            avoid_ros_namespace_conventions: false
+        type_description_hash: RIHS01_a13ee3a330e346c9d87b5aa18d24e11690752bd33a0350f11c5882bc9179260e
+      message_count: 4270
+    - topic_metadata:
+        name: /planning/arm_command
+        type: std_msgs/msg/Float32MultiArray
+        serialization_format: cdr
+        offered_qos_profiles:
+          - history: keep_last
+            depth: 10
+            reliability: reliable
+            durability: volatile
+            deadline:
+              sec: 9223372036
+              nsec: 854775807
+            lifespan:
+              sec: 9223372036
+              nsec: 854775807
+            liveliness: automatic
+            liveliness_lease_duration:
+              sec: 9223372036
+              nsec: 854775807
+            avoid_ros_namespace_conventions: false
+        type_description_hash: RIHS01_0599f6f85b4bfca379873a0b4375a0aca022156bd2d7021275d116ed1fa8bfe0
+      message_count: 2553
+    - topic_metadata:
+        name: /perception/camera_health
+        type: diagnostic_msgs/msg/DiagnosticStatus
+        serialization_format: cdr
+        offered_qos_profiles:
+          - history: keep_last
+            depth: 10
+            reliability: reliable
+            durability: volatile
+            deadline:
+              sec: 9223372036
+              nsec: 854775807
+            lifespan:
+              sec: 9223372036
+              nsec: 854775807
+            liveliness: automatic
+            liveliness_lease_duration:
+              sec: 9223372036
+              nsec: 854775807
+            avoid_ros_namespace_conventions: false
+        type_description_hash: RIHS01_b0e3e692ea2d54a8af2f4ef1930e81556a2db55216b771f8a7d2724ed47bf0e4
+      message_count: 735
+    - topic_metadata:
+        name: /control/odom_yaw_deg
+        type: std_msgs/msg/Float32
+        serialization_format: cdr
+        offered_qos_profiles:
+          - history: keep_last
+            depth: 10
+            reliability: reliable
+            durability: volatile
+            deadline:
+              sec: 9223372036
+              nsec: 854775807
+            lifespan:
+              sec: 9223372036
+              nsec: 854775807
+            liveliness: automatic
+            liveliness_lease_duration:
+              sec: 9223372036
+              nsec: 854775807
+            avoid_ros_namespace_conventions: false
+        type_description_hash: RIHS01_7170d3d8f841f7be3172ce5f4f59f3a4d7f63b0447e8b33327601ad64d83d6e2
+      message_count: 4268
+    - topic_metadata:
+        name: /control/imu_health
+        type: diagnostic_msgs/msg/DiagnosticStatus
+        serialization_format: cdr
+        offered_qos_profiles:
+          - history: keep_last
+            depth: 10
+            reliability: reliable
+            durability: volatile
+            deadline:
+              sec: 9223372036
+              nsec: 854775807
+            lifespan:
+              sec: 9223372036
+              nsec: 854775807
+            liveliness: automatic
+            liveliness_lease_duration:
+              sec: 9223372036
+              nsec: 854775807
+            avoid_ros_namespace_conventions: false
+        type_description_hash: RIHS01_b0e3e692ea2d54a8af2f4ef1930e81556a2db55216b771f8a7d2724ed47bf0e4
+      message_count: 854
+    - topic_metadata:
+        name: /control/imu
+        type: sensor_msgs/msg/Imu
+        serialization_format: cdr
+        offered_qos_profiles:
+          - history: keep_last
+            depth: 10
+            reliability: reliable
+            durability: volatile
+            deadline:
+              sec: 9223372036
+              nsec: 854775807
+            lifespan:
+              sec: 9223372036
+              nsec: 854775807
+            liveliness: automatic
+            liveliness_lease_duration:
+              sec: 9223372036
+              nsec: 854775807
+            avoid_ros_namespace_conventions: false
+        type_description_hash: RIHS01_7d9a00ff131080897a5ec7e26e315954b8eae3353c3f995c55faf71574000b5b
+      message_count: 4268
+    - topic_metadata:
+        name: /control/imu_yaw_deg
+        type: std_msgs/msg/Float32
+        serialization_format: cdr
+        offered_qos_profiles:
+          - history: keep_last
+            depth: 10
+            reliability: reliable
+            durability: volatile
+            deadline:
+              sec: 9223372036
+              nsec: 854775807
+            lifespan:
+              sec: 9223372036
+              nsec: 854775807
+            liveliness: automatic
+            liveliness_lease_duration:
+              sec: 9223372036
+              nsec: 854775807
+            avoid_ros_namespace_conventions: false
+        type_description_hash: RIHS01_7170d3d8f841f7be3172ce5f4f59f3a4d7f63b0447e8b33327601ad64d83d6e2
+      message_count: 4269
+    - topic_metadata:
+        name: /control/arm_motor_health
+        type: diagnostic_msgs/msg/DiagnosticStatus
+        serialization_format: cdr
+        offered_qos_profiles:
+          - history: keep_last
+            depth: 10
+            reliability: reliable
+            durability: volatile
+            deadline:
+              sec: 9223372036
+              nsec: 854775807
+            lifespan:
+              sec: 9223372036
+              nsec: 854775807
+            liveliness: automatic
+            liveliness_lease_duration:
+              sec: 9223372036
+              nsec: 854775807
+            avoid_ros_namespace_conventions: false
+        type_description_hash: RIHS01_b0e3e692ea2d54a8af2f4ef1930e81556a2db55216b771f8a7d2724ed47bf0e4
+      message_count: 854
+  compression_format: ""
+  compression_mode: ""
+  relative_file_paths:
+    - 0_bag_2026_10_08-02_58_09.mcap
+  files:
+    - path: 0_bag_2026_10_08-02_58_09.mcap
+      starting_time:
+        nanoseconds_since_epoch: 1791428289634209499
+      duration:
+        nanoseconds: 85412711058
+      message_count: 33874
+  custom_data: ~
+  ros_distro: lyrical
