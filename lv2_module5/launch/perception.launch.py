@@ -7,6 +7,7 @@
 #   ros2 launch lv2_module5/launch/perception.launch.py output:=log              # 화면 대신 ~/.ros/log 로 (bringup 대시보드용)
 #   ros2 launch lv2_module5/launch/perception.launch.py perception_cpus:=1-3 camera_cpus:=0
 #       # CPU 코어 지정 (taskset). perception 을 지정하면 NCNN 스레드 수도 코어 수에 맞춤
+#   ros2 launch lv2_module5/launch/perception.launch.py num_threads:=4           # NCNN 스레드 수 직접 지정 (2/4 비교)
 #
 # bringup.launch.py에서 IncludeLaunchDescription으로 그대로 포함하면 된다.
 import os
@@ -75,6 +76,9 @@ def generate_launch_description():
         # output 은 문자열로 확정해서 넘긴다 (screen | log)
         cpus = LaunchConfiguration('perception_cpus').perform(context).strip()
         extra = {'num_threads': _cpu_count(cpus)} if cpus else {}   # 지정한 코어 수 = NCNN 스레드 수
+        threads = LaunchConfiguration('num_threads').perform(context).strip()
+        if threads:
+            extra['num_threads'] = int(threads)   # 직접 지정하면 perception.yaml · 코어 수보다 우선 (2/4 비교용)
         return [Node(
         prefix=f'taskset -c {cpus}' if cpus else None,
         package='perception',
@@ -106,6 +110,8 @@ def generate_launch_description():
         DeclareLaunchArgument('output', default_value='screen', description='screen | log'),
         DeclareLaunchArgument('camera_cpus', default_value='', description="RealSense 코어 (예: '0', 비우면 지정 안 함)"),
         DeclareLaunchArgument('perception_cpus', default_value='', description="perception 코어 (예: '1-3')"),
+        DeclareLaunchArgument('num_threads', default_value='',
+                              description="NCNN 스레드 수 (예: '2', '4'. 비우면 perception.yaml 값)"),
         OpaqueFunction(function=camera_group),
         OpaqueFunction(function=perception_node),
     ])
